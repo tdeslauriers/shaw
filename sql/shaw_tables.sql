@@ -76,3 +76,9 @@ CREATE TABLE account_client (
 );
 CREATE INDEX idx_account_client_xref ON account_client(account_uuid);
 CREATE INDEX idx_client_account_xref ON account_client(client_uuid);
+CREATE TABLE servicetoken (
+    uuid CHAR(36) PRIMARY KEY,
+    service_token VARCHAR(1024),
+    refresh_token CHAR(36),
+    refresh_expires TIMESTAMP
+);

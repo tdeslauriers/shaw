@@ -5,6 +5,6 @@
 * user jwt mint.
 * utilizes my [carapace](https://github.com/tdeslauriers/carapace) project for core microservice functionality.
 
-**Name:** Shaw is the name of one of two twin dragons in Avatar. This service's authentication counterpart will be the Ran (second dragon) service which will handle machine credentials.
+**Name:** _Shaw is the name of one of two twin dragons in_ Avatar: The Last Airbender. _This service's authentication counterpart is the Rán (燃) s2s service which hanldes machine credentials._
 
-* Shaw, more correctly shāo (燒), means "burn" or "blaze" in Chinese.
+* _Shaw, more correctly shāo (燒), means "burn" or "blaze" in Chinese/Mandarin._
