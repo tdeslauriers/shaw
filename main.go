@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"log"
 	"os"
+	"shaw/user"
 
 	"github.com/tdeslauriers/carapace/connect"
 	"github.com/tdeslauriers/carapace/data"
@@ -93,7 +94,7 @@ func main() {
 		ConnectionUrl: dbUrl.Build(),
 	}
 
-	repository := data.MariaDbRepository{
+	repository := &data.MariaDbRepository{
 		SqlDb: dbConnector,
 	}
 
@@ -109,6 +110,7 @@ func main() {
 	if err != nil {
 		log.Panicf("unable to decode field level encryption key Env var: %v", err)
 	}
+	cryptor := data.NewServiceAesGcmKey(aes)
 
 	// set up s2s jwt verifier
 	pubPem, err := base64.StdEncoding.DecodeString(os.Getenv(EnvS2sJwtVerifyKey))
@@ -134,12 +136,7 @@ func main() {
 		ClientSecret: os.Getenv(EnvClientSecret),
 	}
 
-	s2sProvider := session.S2sTokenProvider{
-		S2sServiceUrl: os.Getenv(EnvS2sTokenUrl),
-		Credentials:   s2sCmd,
-		S2sClient:     client,
-		Dao:           &repository,
-	}
+	s2sProvider := session.NewS2sTokenProvider(os.Getenv(EnvS2sTokenUrl), s2sCmd, client, repository)
 
 	// set up signer
 	// privPem, err := base64.StdEncoding.DecodeString(os.Getenv(EnvJwtSigningKey))
@@ -154,5 +151,6 @@ func main() {
 	// signer := jwt.JwtSignerService{PrivateKey: privateKey}
 
 	// registration service + handler
+	registration := user.NewAuthRegistrationService(repository, cryptor, indexer, s2sProvider)
 
 }
