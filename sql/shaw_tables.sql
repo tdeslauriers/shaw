@@ -57,7 +57,6 @@ CREATE TABLE client (
     client_expired BOOLEAN NOT NULL,
     client_locked BOOLEAN NOT NULL
 );
-CREATE UNIQUE INDEX idx_account_auth_code ON authcode (auth_code);
 CREATE TABLE redirect (
     uuid CHAR(36) NOT NULL PRIMARY KEY,
     redirect_url CHAR(36) NOT NULL,
