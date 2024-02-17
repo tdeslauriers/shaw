@@ -89,7 +89,7 @@ func TestRegister(t *testing.T) {
 
 	authRegistrationService := NewAuthRegistrationService(authServerDao, cryptor, indexer, s2sJwtProvder)
 
-	cmd := RegisterCmd{
+	cmd := session.UserRegisterCmd{
 		Username:  "darth.vader@empire.com",
 		Password:  "2-Suns-Tattooine",
 		Confirm:   "2-Suns-Tattooine",

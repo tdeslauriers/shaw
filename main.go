@@ -6,11 +6,13 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"log"
+	"net/http"
 	"os"
 	"shaw/user"
 
 	"github.com/tdeslauriers/carapace/connect"
 	"github.com/tdeslauriers/carapace/data"
+	"github.com/tdeslauriers/carapace/diagnostics"
 	"github.com/tdeslauriers/carapace/jwt"
 	"github.com/tdeslauriers/carapace/session"
 )
@@ -126,7 +128,7 @@ func main() {
 	if !ok {
 		log.Panic("Not an ECDSA public key")
 	}
-	jwtVerifier := jwt.JwtVerifierService{
+	jwtVerifier := &jwt.JwtVerifierService{
 		PublicKey: publicKey,
 	}
 
@@ -152,5 +154,26 @@ func main() {
 
 	// registration service + handler
 	registration := user.NewAuthRegistrationService(repository, cryptor, indexer, s2sProvider)
+	regHandler := user.NewRegistrationHandler(registration, jwtVerifier)
 
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", diagnostics.HealthCheckHandler)
+	mux.HandleFunc("/register", regHandler.HandleRegistration)
+
+	// set up server
+	server := &connect.TlsServer{
+		Addr:      ":8445",
+		Mux:       mux,
+		TlsConfig: mtls,
+	}
+
+	go func() {
+
+		log.Printf("Starting shaw user authentication server on %s...", server.Addr[1:])
+		if err := server.Initialize(); err != http.ErrServerClosed {
+			log.Fatalf("Failed to startshaw user authentication server: %v", err)
+		}
+	}()
+
+	select {}
 }

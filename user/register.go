@@ -1,7 +1,6 @@
 package user
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -9,21 +8,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/tdeslauriers/carapace/data"
 	"github.com/tdeslauriers/carapace/session"
-	"github.com/tdeslauriers/carapace/validate"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type RegistrationService interface {
-	Register(RegisterCmd) error
-}
-
-type RegisterCmd struct {
-	Username  string `json:"username"` // email address
-	Password  string `json:"password"`
-	Confirm   string `json:"confirm_password"`
-	Firstname string `json:"firstname"`
-	Lastname  string `json:"lastname"`
-	Birthdate string `json:"bithdate,omitempty"`
+	Register(session.UserRegisterCmd) error
 }
 
 type MariaAuthRegistrationService struct {
@@ -42,32 +31,8 @@ func NewAuthRegistrationService(sql data.SqlRepository, ciph data.Cryptor, i dat
 	}
 }
 
-func (r *MariaAuthRegistrationService) Register(cmd RegisterCmd) error {
-
-	// input validation
-	if err := validate.IsValidEmail(cmd.Username); err != nil {
-		return fmt.Errorf("invalid username: %v", err)
-	}
-
-	if err := validate.IsValidName(cmd.Firstname); err != nil {
-		return fmt.Errorf("invalid firstname: %v", err)
-	}
-
-	if err := validate.IsValidName(cmd.Lastname); err != nil {
-		return fmt.Errorf("invalid lastname: %v", err)
-	}
-
-	if err := validate.IsValidBirthday(cmd.Birthdate); err != nil {
-		return fmt.Errorf("invalid birthday: %v", err)
-	}
-
-	if cmd.Password != cmd.Confirm {
-		return errors.New("password does not match confirm password")
-	}
-
-	if err := validate.IsValidPassword(cmd.Password); err != nil {
-		return fmt.Errorf("invalid password: %v", err)
-	}
+// assumes fields have passed input validation
+func (r *MariaAuthRegistrationService) Register(cmd session.UserRegisterCmd) error {
 
 	// create blind index
 	index, err := r.Indexer.ObtainBlindIndex(cmd.Username)
