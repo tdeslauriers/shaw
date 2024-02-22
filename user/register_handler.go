@@ -10,7 +10,7 @@ import (
 )
 
 // service scopes required
-var allowed []string = []string{"w.shaw:"}
+var allowed []string = []string{"w.shaw:*"}
 
 type RegistrationHandler struct {
 	RegService RegistrationService
@@ -33,7 +33,7 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 
 	// validate service token
 	svcToken := r.Header.Get("Service-Authorization")
-	if allowed, err := h.Verifier.IsAuthorized(allowed, svcToken); !allowed {
+	if authorized, err := h.Verifier.IsAuthorized(allowed, svcToken); !authorized {
 		if err.Error() == "unauthorized" {
 			http.Error(w, fmt.Sprintf("invalid service token: %s", err), http.StatusUnauthorized)
 			return

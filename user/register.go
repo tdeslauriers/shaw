@@ -3,9 +3,11 @@ package user
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/tdeslauriers/carapace/connect"
 	"github.com/tdeslauriers/carapace/data"
 	"github.com/tdeslauriers/carapace/session"
 	"golang.org/x/crypto/bcrypt"
@@ -16,18 +18,20 @@ type RegistrationService interface {
 }
 
 type MariaAuthRegistrationService struct {
-	Dao     data.SqlRepository
-	Cipher  data.Cryptor
-	Indexer data.Indexer
-	S2s     session.S2STokenProvider
+	Dao      data.SqlRepository
+	Cipher   data.Cryptor
+	Indexer  data.Indexer
+	S2sToken      session.S2STokenProvider
+	S2sCaller connect.S2SCaller
 }
 
-func NewAuthRegistrationService(sql data.SqlRepository, ciph data.Cryptor, i data.Indexer, s2s session.S2STokenProvider) *MariaAuthRegistrationService {
+func NewAuthRegistrationService(sql data.SqlRepository, ciph data.Cryptor, i data.Indexer, s2s session.S2STokenProvider, caller connect.S2SCaller) *MariaAuthRegistrationService {
 	return &MariaAuthRegistrationService{
 		Dao:     sql,
 		Cipher:  ciph,
 		Indexer: i,
-		S2s:     s2s,
+		S2sToken:     s2s,
+		S2sCaller: caller,
 	}
 }
 
@@ -115,7 +119,13 @@ func (r *MariaAuthRegistrationService) Register(cmd session.UserRegisterCmd) err
 
 	// add profile service scopes r, w
 	// get token
-	r.S2s.GetServiceToken()
+	r.S2sToken.GetServiceToken()
+	req, err := http.NewRequest("GET", r.ScopesUrl, nil)
+	if err != nil {
+		return fmt.Errorf("unable to create scopes http request")
+	}
+
+	response, err := r.
 
 	return nil
 }

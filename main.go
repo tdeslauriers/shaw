@@ -132,13 +132,16 @@ func main() {
 		PublicKey: publicKey,
 	}
 
+	// s2s callers
+	ranCaller := connect.NewS2sCaller(os.Getenv(EnvS2sTokenUrl), "ran", client)
+	
 	// s2s creds
 	s2sCmd := session.S2sLoginCmd{
 		ClientId:     os.Getenv(EnvClientId),
 		ClientSecret: os.Getenv(EnvClientSecret),
 	}
 
-	s2sProvider := session.NewS2sTokenProvider(os.Getenv(EnvS2sTokenUrl), s2sCmd, client, repository)
+	s2sProvider := session.NewS2sTokenProvider(ranCaller, s2sCmd, repository)
 
 	// set up signer
 	// privPem, err := base64.StdEncoding.DecodeString(os.Getenv(EnvJwtSigningKey))
@@ -153,7 +156,7 @@ func main() {
 	// signer := jwt.JwtSignerService{PrivateKey: privateKey}
 
 	// registration service + handler
-	registration := user.NewAuthRegistrationService(repository, cryptor, indexer, s2sProvider)
+	registration := user.NewAuthRegistrationService(repository, cryptor, indexer, s2sProvider, ranCaller)
 	regHandler := user.NewRegistrationHandler(registration, jwtVerifier)
 
 	mux := http.NewServeMux()
