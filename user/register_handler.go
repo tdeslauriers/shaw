@@ -52,8 +52,8 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 
 	// field input validation needs to happen here
 	// to differenciate between bad request or internal server error response
-	if err != nil {
-		http.Error(w, fmt.Sprintf("%s", err), http.StatusBadRequest)
+	if err := cmd.ValidateCmd(); err != nil {
+		http.Error(w, fmt.Sprintf("%v", err), http.StatusBadRequest)
 		return
 	}
 
@@ -61,4 +61,16 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 		http.Error(w, fmt.Sprintf("%s", err), http.StatusInternalServerError)
 		return
 	}
+
+	// return 201
+	registered := session.UserAccountData{
+		Username:  cmd.Username,
+		Firstname: cmd.Firstname,
+		Lastname:  cmd.Lastname,
+		Birthdate: cmd.Birthdate,
+	}
+	w.Header().Set("Content-Type", "application/json")
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(registered)
 }
