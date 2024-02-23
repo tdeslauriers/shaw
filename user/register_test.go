@@ -85,13 +85,12 @@ func TestRegister(t *testing.T) {
 		ClientSecret: os.Getenv(EnvClientSecret),
 	}
 
-		// s2s callers
-		ranCaller := connect.NewS2sCaller(os.Getenv(EnvS2sTokenUrl), "ran", s2sClient)
-		
+	// s2s callers
+	ranCaller := connect.NewS2sCaller(os.Getenv(EnvS2sTokenUrl), "ran", s2sClient)
 
 	s2sJwtProvder := session.NewS2sTokenProvider(ranCaller, s2sCmd, authServerDao)
 
-	authRegistrationService := NewAuthRegistrationService(authServerDao, cryptor, indexer, s2sJwtProvder)
+	authRegistrationService := NewAuthRegistrationService(authServerDao, cryptor, indexer, s2sJwtProvder, ranCaller)
 
 	cmd := session.UserRegisterCmd{
 		Username:  "darth.vader@empire.com",

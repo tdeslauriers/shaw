@@ -3,7 +3,7 @@ package user
 import (
 	"fmt"
 	"log"
-	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,24 +13,26 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+var defaultScopes []string = []string{"r:silhouette:profile:*", "e:silhouette:profile:*", "r:junk:*"}
+
 type RegistrationService interface {
 	Register(session.UserRegisterCmd) error
 }
 
 type MariaAuthRegistrationService struct {
-	Dao      data.SqlRepository
-	Cipher   data.Cryptor
-	Indexer  data.Indexer
-	S2sToken      session.S2STokenProvider
+	Dao       data.SqlRepository
+	Cipher    data.Cryptor
+	Indexer   data.Indexer
+	S2sToken  session.S2STokenProvider
 	S2sCaller connect.S2SCaller
 }
 
 func NewAuthRegistrationService(sql data.SqlRepository, ciph data.Cryptor, i data.Indexer, s2s session.S2STokenProvider, caller connect.S2SCaller) *MariaAuthRegistrationService {
 	return &MariaAuthRegistrationService{
-		Dao:     sql,
-		Cipher:  ciph,
-		Indexer: i,
-		S2sToken:     s2s,
+		Dao:       sql,
+		Cipher:    ciph,
+		Indexer:   i,
+		S2sToken:  s2s,
 		S2sCaller: caller,
 	}
 }
@@ -113,19 +115,75 @@ func (r *MariaAuthRegistrationService) Register(cmd session.UserRegisterCmd) err
 	// insert user into database
 	query = "INSERT INTO account (uuid, username, user_index, password, firstname, lastname, birth_date, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 	if err := r.Dao.InsertRecord(query, user); err != nil {
-		log.Printf("unable to enter registeration record into account table in db: %v", err)
-		return fmt.Errorf("unable to perst user registration to db")
+		log.Printf("unable to enter registration record into account table in db: %v", err)
+		return fmt.Errorf("unable to persist user registration to db")
 	}
 
-	// add profile service scopes r, w
+	// add profile, blog service scopes r, w
 	// get token
-	r.S2sToken.GetServiceToken()
-	req, err := http.NewRequest("GET", r.ScopesUrl, nil)
+	s2stoken, err := r.S2sToken.GetServiceToken()
 	if err != nil {
-		return fmt.Errorf("unable to create scopes http request")
+		log.Printf("unable to obtain service token: %v", err)
+		return fmt.Errorf("unable to set scopes for new user")
 	}
 
-	response, err := r.
+	// call scopes endpoint
+	var scopes []session.Scope
+	if err := r.S2sCaller.GetServiceData("/scopes", s2stoken, "", scopes); err != nil {
+		log.Printf("unable to get scopes data: %v", err)
+		return fmt.Errorf("unable to set scopes for new user")
+	}
+
+	if len(scopes) < 1 {
+		log.Printf("no scopes returned from scopes endpoint")
+		return fmt.Errorf("unable to set scopes for new user")
+	}
+
+	// filter defaults
+	defaults := filterScopes(scopes, defaultScopes)
+
+	// insert xrefs
+	var wg sync.WaitGroup
+	for _, scope := range defaults {
+
+		wg.Add(1)
+		go func(scope session.Scope) {
+			defer wg.Done()
+
+			xref := session.AccountScopeXref{
+				Id:          0,           // auto increment
+				AccountUuid: id.String(), // user id from above
+				ScopeUuid:   scope.Uuid,
+				CreatedAt:   createdAt.Format("2006-01-02 15:04:05"),
+			}
+
+			query := "INSERT INTO account_scope (id, account_uuid, scope_uuid, created_at) VALUES (?, ?, ?, ?)"
+			if err := r.Dao.InsertRecord(query, xref); err != nil {
+				log.Printf("unable to create xref record for %s - %s: %v", cmd.Username, scope.Name, err)
+				return
+			}
+
+		}(scope)
+	}
+
+	wg.Wait()
 
 	return nil
+}
+
+func filterScopes(scopes []session.Scope, defaults []string) []session.Scope {
+
+	scopeMap := make(map[string]struct{})
+	for _, d := range defaults {
+		scopeMap[d] = struct{}{}
+	}
+
+	var filtered []session.Scope
+	for _, s := range scopes {
+		if _, exists := scopeMap[s.Scope]; exists {
+			filtered = append(filtered, s)
+		}
+	}
+
+	return filtered
 }
