@@ -10,7 +10,7 @@ import (
 )
 
 // service scopes required
-var allowed []string = []string{"w.shaw:*"}
+var allowed []string = []string{"w:shaw:*"}
 
 type RegistrationHandler struct {
 	RegService RegistrationService
@@ -53,12 +53,12 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 	// field input validation needs to happen here
 	// to differenciate between bad request or internal server error response
 	if err := cmd.ValidateCmd(); err != nil {
-		http.Error(w, fmt.Sprintf("%v", err), http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	if err := h.RegService.Register(cmd); err != nil {
-		http.Error(w, fmt.Sprintf("%s", err), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 

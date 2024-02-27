@@ -123,13 +123,13 @@ func (r *MariaAuthRegistrationService) Register(cmd session.UserRegisterCmd) err
 	// get token
 	s2stoken, err := r.S2sToken.GetServiceToken()
 	if err != nil {
-		log.Printf("unable to obtain service token: %v", err)
+		log.Print(err.Error())
 		return fmt.Errorf("unable to set scopes for new user")
 	}
 
 	// call scopes endpoint
 	var scopes []session.Scope
-	if err := r.S2sCaller.GetServiceData("/scopes", s2stoken, "", scopes); err != nil {
+	if err := r.S2sCaller.GetServiceData("/scopes", s2stoken, "", &scopes); err != nil {
 		log.Printf("unable to get scopes data: %v", err)
 		return fmt.Errorf("unable to set scopes for new user")
 	}
