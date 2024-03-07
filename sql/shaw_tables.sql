@@ -24,12 +24,15 @@ CREATE INDEX idx_account_scope_xref ON account_scope(account_uuid);
 CREATE INDEX idx_scope_account_xref ON account_scope(scope_uuid);
 CREATE TABLE refresh (
     uuid CHAR(36) PRIMARY KEY,
-    refresh_token CHAR(36) NOT NULL,
+    refresh_index VARCHAR(128) NOT NULL,
+    service_name VARCHAR(32) NOT NULL,
+    refresh_token VARCHAR(128) NOT NULL,
     account_uuid CHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
     revoked BOOLEAN NOT NULL
 );
-CREATE UNIQUE INDEX idx_account_refresh_token ON refresh(refresh_token);
+CREATE UNIQUE INDEX idx_refreshindex ON refresh(refresh_index);
+CREATE INDEX idx_refresh_sevice_name ON refresh(service_name);
 CREATE TABLE password_history (
     uuid CHAR(36) NOT NULL PRIMARY KEY,
     password VARCHAR(255) NOT NULL,
@@ -57,6 +60,7 @@ CREATE TABLE client (
     client_expired BOOLEAN NOT NULL,
     client_locked BOOLEAN NOT NULL
 );
+CREATE UNIQUE INDEX idx_client_clientname ON client(client_name);
 CREATE TABLE redirect (
     uuid CHAR(36) NOT NULL PRIMARY KEY,
     redirect_url CHAR(36) NOT NULL,
@@ -77,8 +81,11 @@ CREATE INDEX idx_account_client_xref ON account_client(account_uuid);
 CREATE INDEX idx_client_account_xref ON account_client(client_uuid);
 CREATE TABLE servicetoken (
     uuid CHAR(36) PRIMARY KEY,
+    service_name VARCHAR(32),
     service_token VARCHAR(1024),
     service_expires TIMESTAMP,
     refresh_token CHAR(36),
     refresh_expires TIMESTAMP
 );
+CREATE INDEX idx_servicename ON servicetoken(service_name);
+CREATE INDEX idx_refreshexpires ON servicetoken(service_token);
