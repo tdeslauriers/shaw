@@ -43,16 +43,14 @@ func (r *MariaAuthRegistrationService) Register(cmd session.UserRegisterCmd) err
 	// create blind index
 	index, err := r.Indexer.ObtainBlindIndex(cmd.Username)
 	if err != nil {
-		log.Printf("unable to create username blind index: %v", err)
-		return fmt.Errorf("unable to create user record")
+		return fmt.Errorf("unable to create username blind index: %v", err)
 	}
 
 	// check if user already exists
 	query := "SELECT EXISTS(SELECT 1 from account WHERE user_index = ?) AS record_exists"
 	exists, err := r.Dao.SelectExists(query, index)
 	if err != nil {
-		log.Printf("unable to check if user exists: %v", err)
-		return fmt.Errorf("unable to create user record")
+		return fmt.Errorf("unable to check if user exists: %v", err)
 	}
 	if exists {
 		return fmt.Errorf("username unavailable")
@@ -61,14 +59,12 @@ func (r *MariaAuthRegistrationService) Register(cmd session.UserRegisterCmd) err
 	// build user record / encrypt user data
 	id, err := uuid.NewRandom()
 	if err != nil {
-		log.Printf("unable to create uuid for user registration request: %v", err)
-		return fmt.Errorf("unable to create user record")
+		return fmt.Errorf("unable to create uuid for user registration request: %v", err)
 	}
 
 	username, err := r.Cipher.EncyptServiceData(cmd.Username)
 	if err != nil {
-		log.Printf("unable to field level encrypt user registration username/email: %v", err)
-		return fmt.Errorf("unable to create user record")
+		return fmt.Errorf("unable to field level encrypt user registration username/email: %v", err)
 	}
 
 	// bcrypt hash password
@@ -80,20 +76,17 @@ func (r *MariaAuthRegistrationService) Register(cmd session.UserRegisterCmd) err
 
 	first, err := r.Cipher.EncyptServiceData(cmd.Firstname)
 	if err != nil {
-		log.Printf("unable to field level encrypt user registration firstname: %v", err)
-		return fmt.Errorf("unable to create user record")
+		return fmt.Errorf("unable to field level encrypt user registration firstname: %v", err)
 	}
 
 	last, err := r.Cipher.EncyptServiceData(cmd.Lastname)
 	if err != nil {
-		log.Printf("unable to field level encrypt user registration lastname: %v", err)
-		return fmt.Errorf("unable to create user record")
+		return fmt.Errorf("unable to field level encrypt user registration lastname: %v", err)
 	}
 
 	dob, err := r.Cipher.EncyptServiceData(cmd.Birthdate)
 	if err != nil {
-		log.Printf("unable to field level encrypt user registration dob: %v", err)
-		return fmt.Errorf("unable to create user record")
+		return fmt.Errorf("unable to field level encrypt user registration dob: %v", err)
 	}
 
 	createdAt := time.Now()
@@ -115,28 +108,24 @@ func (r *MariaAuthRegistrationService) Register(cmd session.UserRegisterCmd) err
 	// insert user into database
 	query = "INSERT INTO account (uuid, username, user_index, password, firstname, lastname, birth_date, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 	if err := r.Dao.InsertRecord(query, user); err != nil {
-		log.Printf("unable to enter registration record into account table in db: %v", err)
-		return fmt.Errorf("unable to persist user registration to db")
+		return fmt.Errorf("unable to enter registration record into account table in db: %v", err)
 	}
 
 	// add profile, blog service scopes r, w
 	// get token
-	s2stoken, err := r.S2sToken.GetServiceToken()
+	s2stoken, err := r.S2sToken.GetServiceToken("ran")
 	if err != nil {
-		log.Print(err.Error())
-		return fmt.Errorf("unable to set scopes for new user")
+		return fmt.Errorf("unable to get ran service token to retreive scopes: %v", err)
 	}
 
 	// call scopes endpoint
 	var scopes []session.Scope
 	if err := r.S2sCaller.GetServiceData("/scopes", s2stoken, "", &scopes); err != nil {
-		log.Printf("unable to get scopes data: %v", err)
-		return fmt.Errorf("unable to set scopes for new user")
+		return fmt.Errorf("unable to get scopes data: %v", err)
 	}
 
 	if len(scopes) < 1 {
-		log.Printf("no scopes returned from scopes endpoint")
-		return fmt.Errorf("unable to set scopes for new user")
+		return fmt.Errorf("no scopes returned from scopes endpoint")
 	}
 
 	// filter defaults

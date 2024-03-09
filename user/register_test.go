@@ -80,7 +80,7 @@ func TestRegister(t *testing.T) {
 	s2sClientConfig := connect.ClientConfig{Config: &s2sClientPki}
 	s2sClient, _ := s2sClientConfig.NewTlsClient()
 
-	s2sCmd := session.S2sLoginCmd{
+	s2sCreds := session.S2sCredentials{
 		ClientId:     os.Getenv(EnvClientKey),
 		ClientSecret: os.Getenv(EnvClientSecret),
 	}
@@ -88,7 +88,7 @@ func TestRegister(t *testing.T) {
 	// s2s callers
 	ranCaller := connect.NewS2sCaller(os.Getenv(EnvS2sTokenUrl), "ran", s2sClient)
 
-	s2sJwtProvder := session.NewS2sTokenProvider(ranCaller, s2sCmd, authServerDao)
+	s2sJwtProvder := session.NewS2sTokenProvider(ranCaller, s2sCreds, authServerDao, cryptor)
 
 	authRegistrationService := NewAuthRegistrationService(authServerDao, cryptor, indexer, s2sJwtProvder, ranCaller)
 

@@ -134,14 +134,14 @@ func main() {
 
 	// s2s callers
 	ranCaller := connect.NewS2sCaller(os.Getenv(EnvS2sTokenUrl), "ran", client)
-	
+
 	// s2s creds
-	s2sCmd := session.S2sLoginCmd{
+	s2sCreds := session.S2sCredentials{
 		ClientId:     os.Getenv(EnvClientId),
 		ClientSecret: os.Getenv(EnvClientSecret),
 	}
 
-	s2sProvider := session.NewS2sTokenProvider(ranCaller, s2sCmd, repository)
+	s2sProvider := session.NewS2sTokenProvider(ranCaller, s2sCreds, repository, cryptor)
 
 	// set up signer
 	// privPem, err := base64.StdEncoding.DecodeString(os.Getenv(EnvJwtSigningKey))
