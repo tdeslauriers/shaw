@@ -112,7 +112,7 @@ func (r *MariaAuthRegistrationService) Register(cmd session.UserRegisterCmd) err
 	}
 
 	// add profile, blog service scopes r, w
-	// get token
+	// get s2s ran token to retreive scopes
 	s2stoken, err := r.S2sToken.GetServiceToken("ran")
 	if err != nil {
 		return fmt.Errorf("unable to get ran service token to retreive scopes: %v", err)

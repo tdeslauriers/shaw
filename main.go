@@ -18,6 +18,9 @@ import (
 )
 
 const (
+	// app name
+	AppName string = "shaw"
+
 	EnvCaCert       string = "SHAW_CA_CERT"
 	EnvServerCert   string = "SHAW_SERVER_CERT"
 	EnvServerKey    string = "SHAW_SERVER_KEY"
@@ -129,7 +132,8 @@ func main() {
 		log.Panic("Not an ECDSA public key")
 	}
 	jwtVerifier := &jwt.JwtVerifierService{
-		PublicKey: publicKey,
+		ServiceName: AppName,
+		PublicKey:   publicKey,
 	}
 
 	// s2s callers

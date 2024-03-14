@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/tdeslauriers/carapace/connect"
 	"github.com/tdeslauriers/carapace/jwt"
@@ -40,7 +41,8 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 	// validate service token
 	svcToken := r.Header.Get("Service-Authorization")
 	if authorized, err := h.Verifier.IsAuthorized(allowed, svcToken); !authorized {
-		if err.Error() == "unauthorized" {
+		if strings.Contains(err.Error(), "unauthorized") {
+			log.Printf("registration handler service token: %v", err)
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusUnauthorized,
 				Message:    fmt.Sprintf("invalid service token: %v", err),
@@ -48,7 +50,7 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 			e.SendJsonErr(w)
 			return
 		} else {
-			log.Printf("service token authorization failed: %v", err)
+			log.Printf("registration handler service token authorization failed: %v", err)
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusInternalServerError,
 				Message:    "service token authorization failed due to interal server error",

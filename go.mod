@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/tdeslauriers/carapace v0.0.46
+	github.com/tdeslauriers/carapace v0.0.48
 	golang.org/x/crypto v0.21.0
 )
 

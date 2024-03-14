@@ -81,11 +81,11 @@ CREATE INDEX idx_account_client_xref ON account_client(account_uuid);
 CREATE INDEX idx_client_account_xref ON account_client(client_uuid);
 CREATE TABLE servicetoken (
     uuid CHAR(36) PRIMARY KEY,
-    service_name VARCHAR(32),
-    service_token VARCHAR(1024),
-    service_expires TIMESTAMP,
-    refresh_token CHAR(36),
-    refresh_expires TIMESTAMP
+    service_name VARCHAR(32) NOT NULL,
+    service_token VARCHAR(2048) NOT NULL,
+    service_expires TIMESTAMP NOT NULL,
+    refresh_token VARCHAR(128) NOT NULL,
+    refresh_expires TIMESTAMP NOT NULL
 );
-CREATE INDEX idx_servicename ON servicetoken(service_name);
-CREATE INDEX idx_refreshexpires ON servicetoken(service_token);
+CREATE INDEX idx_servicetoken_servicename ON servicetoken(service_name);
+CREATE INDEX idx_servicetoken_refreshexpires ON servicetoken(refresh_expires);
