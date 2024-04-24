@@ -45,7 +45,7 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 			log.Printf("registration handler service token: %v", err)
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusUnauthorized,
-				Message:    fmt.Sprintf("invalid service token: %v", err),
+				Message:    err.Error(),
 			}
 			e.SendJsonErr(w)
 			return
@@ -82,14 +82,25 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// register user
 	if err := h.RegService.Register(cmd); err != nil {
-		log.Printf("failed to register new user %s: %v", cmd.Username, err)
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusInternalServerError,
-			Message:    "user registration failed due to internal service error",
+		if strings.Contains(err.Error(), "username unavailable"){
+			log.Print(err.Error())
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusConflict,
+				Message:    err.Error(),
+			}
+			e.SendJsonErr(w)
+			return
+		} else {
+			log.Printf("failed to register new user %s: %v", cmd.Username, err)
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "user registration failed due to internal service error",
+			}
+			e.SendJsonErr(w)
+			return
 		}
-		e.SendJsonErr(w)
-		return
 	}
 
 	// return 201

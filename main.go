@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"shaw/user"
+	"time"
 
 	"github.com/tdeslauriers/carapace/connect"
 	"github.com/tdeslauriers/carapace/data"
@@ -136,8 +137,15 @@ func main() {
 		PublicKey:   publicKey,
 	}
 
+	// retry config for s2s callers
+	retry := connect.RetryConfiguration{
+		MaxRetries:  5,
+		BaseBackoff: 100 * time.Microsecond,
+		MaxBackoff:  10 * time.Second,
+	}
+
 	// s2s callers
-	ranCaller := connect.NewS2sCaller(os.Getenv(EnvS2sTokenUrl), "ran", client)
+	ranCaller := connect.NewS2sCaller(os.Getenv(EnvS2sTokenUrl), "ran", client, retry)
 
 	// s2s creds
 	s2sCreds := session.S2sCredentials{

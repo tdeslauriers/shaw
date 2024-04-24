@@ -1,10 +1,10 @@
 module shaw
 
-go 1.19
+go 1.22
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/tdeslauriers/carapace v0.0.48
+	github.com/tdeslauriers/carapace v0.0.52
 	golang.org/x/crypto v0.21.0
 )
 

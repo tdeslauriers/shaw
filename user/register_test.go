@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/tdeslauriers/carapace/connect"
 	"github.com/tdeslauriers/carapace/data"
@@ -85,8 +86,15 @@ func TestRegister(t *testing.T) {
 		ClientSecret: os.Getenv(EnvClientSecret),
 	}
 
+	// retry config for s2s callers
+	retry := connect.RetryConfiguration{
+		MaxRetries:  5,
+		BaseBackoff: 100 * time.Microsecond,
+		MaxBackoff:  10 * time.Second,
+	}
+
 	// s2s callers
-	ranCaller := connect.NewS2sCaller(os.Getenv(EnvS2sTokenUrl), "ran", s2sClient)
+	ranCaller := connect.NewS2sCaller(os.Getenv(EnvS2sTokenUrl), "ran", s2sClient, retry)
 
 	s2sJwtProvder := session.NewS2sTokenProvider(ranCaller, s2sCreds, authServerDao, cryptor)
 
