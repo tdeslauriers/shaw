@@ -1,15 +1,16 @@
-package user
+package register
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
+	"shaw/internal/util"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/tdeslauriers/carapace/connect"
-	"github.com/tdeslauriers/carapace/data"
-	"github.com/tdeslauriers/carapace/session"
+	"github.com/tdeslauriers/carapace/pkg/connect"
+	"github.com/tdeslauriers/carapace/pkg/data"
+	"github.com/tdeslauriers/carapace/pkg/session"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -19,38 +20,44 @@ type RegistrationService interface {
 	Register(session.UserRegisterCmd) error
 }
 
-type MariaAuthRegistrationService struct {
-	Dao       data.SqlRepository
-	Cipher    data.Cryptor
-	Indexer   data.Indexer
-	S2sToken  session.S2STokenProvider
-	S2sCaller connect.S2SCaller
-}
+func NewRegistrationService(sql data.SqlRepository, ciph data.Cryptor, indexer data.Indexer, s2s session.S2sTokenProvider, caller connect.S2sCaller) RegistrationService {
+	return &registrationService{
+		db:        sql,
+		cipher:    ciph,
+		indexer:   indexer,
+		s2sToken:  s2s,
+		s2sCaller: caller,
 
-func NewAuthRegistrationService(sql data.SqlRepository, ciph data.Cryptor, i data.Indexer, s2s session.S2STokenProvider, caller connect.S2SCaller) *MariaAuthRegistrationService {
-	return &MariaAuthRegistrationService{
-		Dao:       sql,
-		Cipher:    ciph,
-		Indexer:   i,
-		S2sToken:  s2s,
-		S2sCaller: caller,
+		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentRegister)),
 	}
 }
 
+var _ RegistrationService = (*registrationService)(nil)
+
+type registrationService struct {
+	db        data.SqlRepository
+	cipher    data.Cryptor
+	indexer   data.Indexer
+	s2sToken  session.S2sTokenProvider
+	s2sCaller connect.S2sCaller
+
+	logger *slog.Logger
+}
+
 // assumes fields have passed input validation
-func (r *MariaAuthRegistrationService) Register(cmd session.UserRegisterCmd) error {
+func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
 
 	// create blind index
-	index, err := r.Indexer.ObtainBlindIndex(cmd.Username)
+	index, err := r.indexer.ObtainBlindIndex(cmd.Username)
 	if err != nil {
-		return fmt.Errorf("unable to create username blind index: %v", err)
+		return fmt.Errorf("failed to create username blind index: %v", err)
 	}
 
 	// check if user already exists
 	query := "SELECT EXISTS(SELECT 1 from account WHERE user_index = ?) AS record_exists"
-	exists, err := r.Dao.SelectExists(query, index)
+	exists, err := r.db.SelectExists(query, index)
 	if err != nil {
-		return fmt.Errorf("unable to check if user exists: %v", err)
+		return fmt.Errorf("failed to check if user exists: %v", err)
 	}
 	if exists {
 		return fmt.Errorf("username unavailable")
@@ -59,34 +66,34 @@ func (r *MariaAuthRegistrationService) Register(cmd session.UserRegisterCmd) err
 	// build user record / encrypt user data
 	id, err := uuid.NewRandom()
 	if err != nil {
-		return fmt.Errorf("unable to create uuid for user registration request: %v", err)
+		return fmt.Errorf("failed to create uuid for user registration request: %v", err)
 	}
 
-	username, err := r.Cipher.EncyptServiceData(cmd.Username)
+	username, err := r.cipher.EncyptServiceData(cmd.Username)
 	if err != nil {
-		return fmt.Errorf("unable to field level encrypt user registration username/email: %v", err)
+		return fmt.Errorf("failed to field level encrypt user registration username/email: %v", err)
 	}
 
 	// bcrypt hash password
 	password, err := bcrypt.GenerateFromPassword([]byte(cmd.Password), 13)
 	if err != nil {
-		log.Printf("unable to generate bcrypt password hash: %v", err)
-		return fmt.Errorf("unable to create user record")
+		r.logger.Error("failed to generate bcrypt password hash", "err", err.Error())
+		return fmt.Errorf("failed to create user record")
 	}
 
-	first, err := r.Cipher.EncyptServiceData(cmd.Firstname)
+	first, err := r.cipher.EncyptServiceData(cmd.Firstname)
 	if err != nil {
-		return fmt.Errorf("unable to field level encrypt user registration firstname: %v", err)
+		return fmt.Errorf("failed to field level encrypt user registration firstname: %v", err)
 	}
 
-	last, err := r.Cipher.EncyptServiceData(cmd.Lastname)
+	last, err := r.cipher.EncyptServiceData(cmd.Lastname)
 	if err != nil {
-		return fmt.Errorf("unable to field level encrypt user registration lastname: %v", err)
+		return fmt.Errorf("failed to field level encrypt user registration lastname: %v", err)
 	}
 
-	dob, err := r.Cipher.EncyptServiceData(cmd.Birthdate)
+	dob, err := r.cipher.EncyptServiceData(cmd.Birthdate)
 	if err != nil {
-		return fmt.Errorf("unable to field level encrypt user registration dob: %v", err)
+		return fmt.Errorf("failed to field level encrypt user registration dob: %v", err)
 	}
 
 	createdAt := time.Now()
@@ -107,21 +114,21 @@ func (r *MariaAuthRegistrationService) Register(cmd session.UserRegisterCmd) err
 
 	// insert user into database
 	query = "INSERT INTO account (uuid, username, user_index, password, firstname, lastname, birth_date, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	if err := r.Dao.InsertRecord(query, user); err != nil {
-		return fmt.Errorf("unable to enter registration record into account table in db: %v", err)
+	if err := r.db.InsertRecord(query, user); err != nil {
+		return fmt.Errorf("failed to enter registration record into account table in db: %v", err)
 	}
 
 	// add profile, blog service scopes r, w
 	// get s2s ran token to retreive scopes
-	s2stoken, err := r.S2sToken.GetServiceToken("ran")
+	s2stoken, err := r.s2sToken.GetServiceToken("ran")
 	if err != nil {
-		return fmt.Errorf("unable to get ran service token to retreive scopes: %v", err)
+		return fmt.Errorf("failed to get ran service token to retreive scopes: %v", err)
 	}
 
 	// call scopes endpoint
 	var scopes []session.Scope
-	if err := r.S2sCaller.GetServiceData("/scopes", s2stoken, "", &scopes); err != nil {
-		return fmt.Errorf("unable to get scopes data: %v", err)
+	if err := r.s2sCaller.GetServiceData("/scopes", s2stoken, "", &scopes); err != nil {
+		return fmt.Errorf("failed to get scopes data: %v", err)
 	}
 
 	if len(scopes) < 1 {
@@ -147,8 +154,8 @@ func (r *MariaAuthRegistrationService) Register(cmd session.UserRegisterCmd) err
 			}
 
 			query := "INSERT INTO account_scope (id, account_uuid, scope_uuid, created_at) VALUES (?, ?, ?, ?)"
-			if err := r.Dao.InsertRecord(query, xref); err != nil {
-				log.Printf("unable to create xref record for %s - %s: %v", cmd.Username, scope.Name, err)
+			if err := r.db.InsertRecord(query, xref); err != nil {
+				r.logger.Error(fmt.Sprintf("failed to create xref record for %s - %s", cmd.Username, scope.Name), "err", err.Error())
 				return
 			}
 

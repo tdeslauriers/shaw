@@ -1,33 +1,44 @@
-package user
+package register
 
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
+	"shaw/internal/util"
 	"strings"
 
-	"github.com/tdeslauriers/carapace/connect"
-	"github.com/tdeslauriers/carapace/jwt"
-	"github.com/tdeslauriers/carapace/session"
+	"github.com/tdeslauriers/carapace/pkg/connect"
+	"github.com/tdeslauriers/carapace/pkg/jwt"
+	"github.com/tdeslauriers/carapace/pkg/session"
 )
 
 // service scopes required
 var allowed []string = []string{"w:shaw:*"}
 
-type RegistrationHandler struct {
-	RegService RegistrationService
-	Verifier   jwt.JwtVerifier
+type RegistrationHandler interface {
+	HandleRegistration(w http.ResponseWriter, r *http.Request)
 }
 
-func NewRegistrationHandler(reg RegistrationService, v jwt.JwtVerifier) *RegistrationHandler {
-	return &RegistrationHandler{
-		RegService: reg,
-		Verifier:   v,
+func NewRegistrationHandler(reg RegistrationService, v jwt.JwtVerifier) RegistrationHandler {
+	return &registrationHandler{
+		regService: reg,
+		verifier:   v,
+
+		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentRegister)),
 	}
 }
 
-func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
+var _ RegistrationHandler = (*registrationHandler)(nil)
+
+type registrationHandler struct {
+	regService RegistrationService
+	verifier   jwt.JwtVerifier
+
+	logger *slog.Logger
+}
+
+func (h *registrationHandler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method != "POST" {
 		e := connect.ErrorHttp{
@@ -40,9 +51,9 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 
 	// validate service token
 	svcToken := r.Header.Get("Service-Authorization")
-	if authorized, err := h.Verifier.IsAuthorized(allowed, svcToken); !authorized {
+	if authorized, err := h.verifier.IsAuthorized(allowed, svcToken); !authorized {
 		if strings.Contains(err.Error(), "unauthorized") {
-			log.Printf("registration handler service token: %v", err)
+			h.logger.Error("registration handler service token", "err", err.Error())
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusUnauthorized,
 				Message:    err.Error(),
@@ -50,7 +61,7 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 			e.SendJsonErr(w)
 			return
 		} else {
-			log.Printf("registration handler service token authorization failed: %v", err)
+			h.logger.Error("registration handler service token authorization failed", "err", err.Error())
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusInternalServerError,
 				Message:    "service token authorization failed due to interal server error",
@@ -62,7 +73,7 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 
 	var cmd session.UserRegisterCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
-		log.Printf("unable to decode json registration request body: %v", err)
+		h.logger.Error("unable to decode json registration request body", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
 			Message:    "unable to decode json registration request body",
@@ -83,9 +94,9 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 	}
 
 	// register user
-	if err := h.RegService.Register(cmd); err != nil {
-		if strings.Contains(err.Error(), "username unavailable"){
-			log.Print(err.Error())
+	if err := h.regService.Register(cmd); err != nil {
+		if strings.Contains(err.Error(), "username unavailable") {
+			h.logger.Error("err", err.Error())
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusConflict,
 				Message:    err.Error(),
@@ -93,7 +104,7 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 			e.SendJsonErr(w)
 			return
 		} else {
-			log.Printf("failed to register new user %s: %v", cmd.Username, err)
+			h.logger.Error(fmt.Sprintf("failed to register new user %s", cmd.Username), "err", err.Error())
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusInternalServerError,
 				Message:    "user registration failed due to internal service error",
@@ -114,6 +125,6 @@ func (h *RegistrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(registered); err != nil {
-		log.Printf("failed to json encode/send user (%s) registration response body: %v", registered.Username, err)
+		h.logger.Error(fmt.Sprintf("failed to json encode/send user (%s) registration response body", registered.Username), "err", err.Error())
 	}
 }

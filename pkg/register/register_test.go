@@ -1,4 +1,4 @@
-package user
+package register
 
 import (
 	"encoding/base64"
@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tdeslauriers/carapace/connect"
-	"github.com/tdeslauriers/carapace/data"
-	"github.com/tdeslauriers/carapace/session"
+	"github.com/tdeslauriers/carapace/pkg/connect"
+	"github.com/tdeslauriers/carapace/pkg/data"
+	"github.com/tdeslauriers/carapace/pkg/session"
 )
 
 const (
@@ -98,7 +98,7 @@ func TestRegister(t *testing.T) {
 
 	s2sJwtProvder := session.NewS2sTokenProvider(ranCaller, s2sCreds, authServerDao, cryptor)
 
-	authRegistrationService := NewAuthRegistrationService(authServerDao, cryptor, indexer, s2sJwtProvder, ranCaller)
+	authRegistrationService := NewRegistrationService(authServerDao, cryptor, indexer, s2sJwtProvder, ranCaller)
 
 	cmd := session.UserRegisterCmd{
 		Username:  "darth.vader@empire.com",
