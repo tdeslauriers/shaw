@@ -32,6 +32,7 @@ func New(config config.Config) (Identity, error) {
 	serverPki := &connect.Pki{
 		CertFile: *config.Certs.ServerCert,
 		KeyFile:  *config.Certs.ServerKey,
+		CaFiles:  []string{*config.Certs.ServerCa},
 	}
 
 	serverTlsConfig, err := connect.NewTlsServerConfig(config.Tls, serverPki).Build()
