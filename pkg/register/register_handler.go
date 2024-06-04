@@ -96,7 +96,7 @@ func (h *registrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 	// register user
 	if err := h.regService.Register(cmd); err != nil {
 		if strings.Contains(err.Error(), "username unavailable") {
-			h.logger.Error("err", err.Error())
+			h.logger.Error(err.Error())
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusConflict,
 				Message:    err.Error(),
