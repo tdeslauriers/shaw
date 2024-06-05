@@ -1,12 +1,15 @@
 package authentication
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"shaw/internal/util"
 
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func NewUserAuthService(sql data.SqlRepository, mint jwt.JwtSigner, indexer data.Indexer, cryptor data.Cryptor) session.UserAuthService {
@@ -34,7 +37,57 @@ type userAuthService struct {
 // ValidateCredentials validates the user credentials for user authentication service
 func (s *userAuthService) ValidateCredentials(username, password string) error {
 
-	// TDOO: implement validate credentials
+	// create index for db lookup
+	userIndex, err := s.indexer.ObtainBlindIndex(username)
+	if err != nil {
+		s.logger.Error("failed to obtain blind index for user lookup", "err", err.Error())
+		return err
+	}
+
+	var user session.UserAccountData
+	qry := `
+		SELECT 
+			uuid,
+			username,
+			user_index,
+			password,
+			firstname,
+			lastname,
+			birthdate,
+			created_at,
+			enabled,
+			account_expired,
+			account_locked
+		FROM account
+		WHERE user_index = ?`
+	if err := s.sql.SelectRecord(qry, userIndex, &user); err != nil {
+		s.logger.Error(fmt.Sprintf("failed to retrieve user record for %s", username), "err", err.Error())
+		return fmt.Errorf("failed to retrieve user record for %s", username)
+	}
+
+	// validate password
+	pw := []byte(password)
+	hash := []byte(user.Password)
+	if err := bcrypt.CompareHashAndPassword(hash, pw); err != nil {
+		s.logger.Error("failed to validate user password", "err", err.Error())
+		return errors.New("invalid username or password")
+	}
+
+	if !user.Enabled {
+		s.logger.Error(fmt.Sprintf("user account %s is disabled", username))
+		return fmt.Errorf("user account %s is disabled", username)
+	}
+
+	if user.AccountLocked {
+		s.logger.Error(fmt.Sprintf("user account %s is locked", username))
+		return fmt.Errorf("user account %s is locked", username)
+	}
+
+	if user.AccountExpired {
+		s.logger.Error(fmt.Sprintf("user account %s is expired", username))
+		return fmt.Errorf("user account %s is expired", username)
+	}
+
 	return nil
 }
 
@@ -67,3 +120,6 @@ func (s *userAuthService) PersistRefresh(r session.UserRefresh) error {
 	// TDOO: implement persist refresh
 	return nil
 }
+
+
+
