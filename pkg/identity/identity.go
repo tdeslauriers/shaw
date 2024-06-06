@@ -86,7 +86,7 @@ func New(config config.Config) (Identity, error) {
 		return nil, fmt.Errorf("failed to decode hmac key: %v", err)
 	}
 
-	indexer := data.NewHmacIndexer(hmacSecret)
+	indexer := data.NewIndexer(hmacSecret)
 
 	// field level encryption
 	aes, err := base64.StdEncoding.DecodeString(config.Database.FieldKey)

@@ -61,6 +61,7 @@ CREATE TABLE client (
     client_locked BOOLEAN NOT NULL
 );
 CREATE UNIQUE INDEX idx_client_clientname ON client(client_name);
+CREATE UNIQUE INDEX idx_client_clientid ON client(client_id);
 CREATE TABLE redirect (
     uuid CHAR(36) NOT NULL PRIMARY KEY,
     redirect_url CHAR(36) NOT NULL,

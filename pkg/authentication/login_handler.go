@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
+	"strings"
+	"sync"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/session"
@@ -14,9 +16,10 @@ type LoginHandler interface {
 	HandleLogin(w http.ResponseWriter, r *http.Request)
 }
 
-func NewLoginHandler(service session.UserAuthService) LoginHandler {
+func NewLoginHandler(user session.UserAuthService, client ClientService) LoginHandler {
 	return &loginHandler{
-		authService: service,
+		authService:   user,
+		clientService: client,
 
 		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentLogin)),
 	}
@@ -25,7 +28,8 @@ func NewLoginHandler(service session.UserAuthService) LoginHandler {
 var _ LoginHandler = (*loginHandler)(nil)
 
 type loginHandler struct {
-	authService session.UserAuthService
+	authService   session.UserAuthService
+	clientService ClientService
 
 	logger *slog.Logger
 }
@@ -62,17 +66,54 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var wg sync.WaitGroup
+	errChan := make(chan error, 2)
+
 	// validate user credentials
-	if err := h.authService.ValidateCredentials(cmd.Username, cmd.Password); err != nil {
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusUnauthorized,
-			Message:    err.Error(), // TOOD: add swithc for different error messages, eg, internal server error, user not found, etc.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := h.authService.ValidateCredentials(cmd.Username, cmd.Password); err != nil {
+			h.logger.Error("failed to validate user credentials", "err", err.Error())
+			errChan <- err
 		}
-		e.SendJsonErr(w)
-		return
-	}
+	}()
 
 	// validate redirect url
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if valid, err := h.clientService.IsValidRedirect(cmd.ClientId, cmd.Redirect); !valid {
+			h.logger.Error("failed to validate redirect url", "err", err.Error())
+		}
+	}()
+
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
+
+	// consolidate and return any login errors
+	var loginErrors []error
+	for e := range errChan {
+		loginErrors = append(loginErrors, e)
+	}
+	if len(loginErrors) > 0 {
+		var builder strings.Builder
+		for i, e := range loginErrors {
+			builder.WriteString(e.Error())
+			if i < len(loginErrors)-1 {
+				builder.WriteString(", ")
+			}
+		}
+
+		errHttp := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    builder.String(),
+		}
+		errHttp.SendJsonErr(w)
+		return
+	}
 
 	// create token
 
@@ -80,4 +121,3 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// respond with auth code, etc.
 }
-
