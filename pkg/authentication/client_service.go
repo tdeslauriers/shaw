@@ -110,5 +110,4 @@ func (svc *clientService) IsValidRedirect(clientId, redirect string) (bool, erro
 	}
 
 	return true, nil
-
 }

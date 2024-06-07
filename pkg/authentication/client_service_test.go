@@ -2,6 +2,7 @@ package authentication
 
 import (
 	"database/sql"
+	"errors"
 	"testing"
 )
 
@@ -22,6 +23,17 @@ func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, arg
 
 	if args[0] != RealClient || args[1] != RealRedirect {
 		return sql.ErrNoRows
+	} else {
+
+		*record.(*ClientRedirect) = ClientRedirect{
+			Id:              "1234",
+			ClientId:        RealClient,
+			ClientEnabled:   true,
+			ClientExpired:   false,
+			ClientLocked:    false,
+			RedirectUrl:     RealRedirect,
+			RedirectEnabled: true,
+		}
 	}
 	return nil
 }
@@ -39,21 +51,43 @@ func TestIsValidRedirect(t *testing.T) {
 		clientId string
 		redirect string
 		valid    bool
-		err      string
+		err      error
 	}{
 		{
 			name:     "valid redirect",
 			clientId: RealClient,
 			redirect: RealRedirect,
+			valid:    true,
+			err:      nil,
+		},
+		{
+			name:     "invalid client",
+			clientId: "invalid-client-uuid",
+			redirect: RealRedirect,
 			valid:    false,
-			err:      "client disabled", // sql result interface{} in func ClientRedirect has default false bool values
+			err:      errors.New("client/redirect pair not found"),
+		},
+		{
+			name: "empty client",
+			// empty client
+			clientId: "",
+			redirect: RealRedirect,
+			valid:    false,
+			err:      errors.New("client/redirect pair not found"),
 		},
 		{
 			name:     "invalid redirect",
-			clientId: "invalid-client-uuid",
+			clientId: RealClient,
 			redirect: "https://invalid-redirect-url.com",
 			valid:    false,
-			err:      "client/redirect pair not found",
+			err:      errors.New("client/redirect pair not found"),
+		},
+		{
+			name:     "empty redirect",
+			clientId: RealClient,
+			redirect: "",
+			valid:    false,
+			err:      errors.New("client/redirect pair not found"),
 		},
 	}
 
@@ -67,8 +101,8 @@ func TestIsValidRedirect(t *testing.T) {
 			if valid != tc.valid {
 				t.Errorf("expected %v, got %v", tc.valid, valid)
 			}
-			if err.Error() != tc.err {
-				t.Errorf("expected %v, got %v", tc.err, err.Error())
+			if !valid && err.Error() != tc.err.Error() {
+				t.Errorf("expected %v, got %v", tc.err.Error(), err.Error())
 			}
 		})
 	}
