@@ -9,17 +9,22 @@ import (
 	"sync"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
+	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session"
 )
+
+// service scopes required
+var allowed []string = []string{"w:shaw:*"}
 
 type LoginHandler interface {
 	HandleLogin(w http.ResponseWriter, r *http.Request)
 }
 
-func NewLoginHandler(user session.UserAuthService, client ClientService) LoginHandler {
+func NewLoginHandler(user session.UserAuthService, client ClientService, verifier jwt.JwtVerifier) LoginHandler {
 	return &loginHandler{
 		authService:   user,
 		clientService: client,
+		s2sVerifier:   verifier,
 
 		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentLogin)),
 	}
@@ -30,6 +35,7 @@ var _ LoginHandler = (*loginHandler)(nil)
 type loginHandler struct {
 	authService   session.UserAuthService
 	clientService ClientService
+	s2sVerifier   jwt.JwtVerifier
 
 	logger *slog.Logger
 }
@@ -44,6 +50,28 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 		e.SendJsonErr(w)
 		return
+	}
+
+	// validate service token
+	svcToken := r.Header.Get("Service-Authorization")
+	if authorized, err := h.s2sVerifier.IsAuthorized(allowed, svcToken); !authorized {
+		if strings.Contains(err.Error(), "unauthorized") {
+			h.logger.Error("registration handler service token", "err", err.Error())
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusUnauthorized,
+				Message:    err.Error(),
+			}
+			e.SendJsonErr(w)
+			return
+		} else {
+			h.logger.Error("login handler service token authorization failed", "err", err.Error())
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "service token authorization failed due to interal server error",
+			}
+			e.SendJsonErr(w)
+			return
+		}
 	}
 
 	var cmd session.UserLoginCmd
