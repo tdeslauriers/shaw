@@ -45,7 +45,7 @@ func (dao *mockAuthSqlRepository) SelectRecord(query string, record interface{},
 
 		hash, _ := bcrypt.GenerateFromPassword([]byte(RealPassword), BcryptCost)
 
-		user := &session.UserAccountData{
+		*record.(*session.UserAccountData) = session.UserAccountData{
 			Uuid:           "1234",
 			Username:       RealUsername,
 			UserIndex:      UserIndex,
@@ -59,7 +59,6 @@ func (dao *mockAuthSqlRepository) SelectRecord(query string, record interface{},
 			AccountLocked:  false,
 		}
 
-		*record.(*session.UserAccountData) = *user
 	}
 	return nil
 }
