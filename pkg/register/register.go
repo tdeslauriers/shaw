@@ -1,6 +1,7 @@
 package register
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"shaw/internal/util"
@@ -44,56 +45,75 @@ type registrationService struct {
 	logger *slog.Logger
 }
 
+const (
+	BuildUserErrMsg = "failed to build/persist user record"
+)
+
 // assumes fields have passed input validation
 func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
+
+	// validate registration fields
+	// redundant check because checked in handler, but good practice
+	if err := cmd.ValidateCmd(); err != nil {
+		r.logger.Error("failed to validate user registration fields", "err", err.Error())
+		return errors.New(err.Error())
+	}
 
 	// create blind index
 	index, err := r.indexer.ObtainBlindIndex(cmd.Username)
 	if err != nil {
-		return fmt.Errorf("failed to create username blind index: %v", err)
+		r.logger.Error("failed to create username index", "err", err.Error())
+		return errors.New("indexing failure")
 	}
 
 	// check if user already exists
 	query := "SELECT EXISTS(SELECT 1 from account WHERE user_index = ?) AS record_exists"
 	exists, err := r.db.SelectExists(query, index)
 	if err != nil {
-		return fmt.Errorf("failed to check if user exists: %v", err)
+		r.logger.Error("failed db call to check if user exists", "err", err.Error())
+		return fmt.Errorf("failed call to check if user exists")
 	}
 	if exists {
-		return fmt.Errorf("username unavailable")
+		r.logger.Error(fmt.Sprintf("username %s already exists", cmd.Username))
+		return errors.New("username unavailable")
 	}
 
 	// build user record / encrypt user data
 	id, err := uuid.NewRandom()
 	if err != nil {
-		return fmt.Errorf("failed to create uuid for user registration request: %v", err)
+		r.logger.Error("failed to create uuid for user registration request", "err", err.Error())
+		return errors.New(BuildUserErrMsg)
 	}
 
 	username, err := r.cipher.EncyptServiceData(cmd.Username)
 	if err != nil {
-		return fmt.Errorf("failed to field level encrypt user registration username/email: %v", err)
+		r.logger.Error("failed to field level encrypt user registration username/email", "err", err.Error())
+		return errors.New(BuildUserErrMsg)
 	}
 
 	// bcrypt hash password
 	password, err := bcrypt.GenerateFromPassword([]byte(cmd.Password), 13)
 	if err != nil {
 		r.logger.Error("failed to generate bcrypt password hash", "err", err.Error())
-		return fmt.Errorf("failed to create user record")
+		return errors.New(BuildUserErrMsg)
 	}
 
 	first, err := r.cipher.EncyptServiceData(cmd.Firstname)
 	if err != nil {
-		return fmt.Errorf("failed to field level encrypt user registration firstname: %v", err)
+		r.logger.Error("failed to field level encrypt user registration firstname", "err", err.Error())
+		return errors.New(BuildUserErrMsg)
 	}
 
 	last, err := r.cipher.EncyptServiceData(cmd.Lastname)
 	if err != nil {
-		return fmt.Errorf("failed to field level encrypt user registration lastname: %v", err)
+		r.logger.Error("failed to field level encrypt user registration lastname", "err", err.Error())
+		return errors.New(BuildUserErrMsg)
 	}
 
 	dob, err := r.cipher.EncyptServiceData(cmd.Birthdate)
 	if err != nil {
-		return fmt.Errorf("failed to field level encrypt user registration dob: %v", err)
+		r.logger.Error("failed to field level encrypt user registration dob", "err", err.Error())
+		return errors.New(BuildUserErrMsg)
 	}
 
 	createdAt := time.Now()
@@ -115,24 +135,29 @@ func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
 	// insert user into database
 	query = "INSERT INTO account (uuid, username, user_index, password, firstname, lastname, birth_date, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 	if err := r.db.InsertRecord(query, user); err != nil {
-		return fmt.Errorf("failed to enter registration record into account table in db: %v", err)
+		r.logger.Error(fmt.Sprintf("failed to insert (%s) user record into account table in db", username), "err", err.Error())
+		return errors.New(BuildUserErrMsg)
 	}
+	r.logger.Info(fmt.Sprintf("user %s successfully saved in account table", cmd.Username))
 
 	// add profile, blog service scopes r, w
 	// get s2s ran token to retreive scopes
 	s2stoken, err := r.s2sToken.GetServiceToken("ran")
 	if err != nil {
-		return fmt.Errorf("failed to get ran service token to retreive scopes: %v", err)
+		r.logger.Error("failed to get s2s token to retreive scopes", "err", err.Error())
+		return errors.New(BuildUserErrMsg)
 	}
 
 	// call scopes endpoint
 	var scopes []session.Scope
 	if err := r.s2sCaller.GetServiceData("/scopes", s2stoken, "", &scopes); err != nil {
-		return fmt.Errorf("failed to get scopes data: %v", err)
+		r.logger.Error("failed to get scopes data", "err", err.Error())
+		return errors.New(BuildUserErrMsg)
 	}
 
 	if len(scopes) < 1 {
-		return fmt.Errorf("no scopes returned from scopes endpoint")
+		r.logger.Error("no scopes returned from scopes endpoint")
+		return errors.New(BuildUserErrMsg)
 	}
 
 	// filter defaults
@@ -158,11 +183,13 @@ func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
 				r.logger.Error(fmt.Sprintf("failed to create xref record for %s - %s", cmd.Username, scope.Name), "err", err.Error())
 				return
 			}
+			r.logger.Info(fmt.Sprintf("user %s successfully assigned default scope %s", cmd.Username, scope.Name))
 
 		}(scope)
 	}
 
 	wg.Wait()
+	r.logger.Info(fmt.Sprintf("successfully assigned and saved all default scopes to user %s", cmd.Username))
 
 	return nil
 }
@@ -170,8 +197,8 @@ func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
 func filterScopes(scopes []session.Scope, defaults []string) []session.Scope {
 
 	scopeMap := make(map[string]struct{})
-	for _, d := range defaults {
-		scopeMap[d] = struct{}{}
+	for _, def := range defaults {
+		scopeMap[def] = struct{}{}
 	}
 
 	var filtered []session.Scope
