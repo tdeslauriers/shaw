@@ -1,3 +1,4 @@
+-- Account table
 CREATE TABLE account (
     uuid CHAR(36) PRIMARY KEY,
     username VARCHAR(128) NOT NULL,
@@ -12,7 +13,9 @@ CREATE TABLE account (
     account_locked BOOLEAN NOT NULL
 );
 CREATE UNIQUE INDEX idx_user_blind_index ON account (user_index);
+
 -- scopes table is in Ran Database, call s2s service for data
+-- account scope xref table
 CREATE TABLE account_scope (
     id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     account_uuid CHAR(36) NOT NULL,
@@ -22,6 +25,8 @@ CREATE TABLE account_scope (
 );
 CREATE INDEX idx_account_scope_xref ON account_scope(account_uuid);
 CREATE INDEX idx_scope_account_xref ON account_scope(scope_uuid);
+
+-- refresh token table
 CREATE TABLE refresh (
     uuid CHAR(36) PRIMARY KEY,
     refresh_index VARCHAR(128) NOT NULL,
@@ -33,6 +38,8 @@ CREATE TABLE refresh (
 );
 CREATE UNIQUE INDEX idx_refreshindex ON refresh(refresh_index);
 CREATE INDEX idx_refresh_sevice_name ON refresh(service_name);
+
+-- password history table
 CREATE TABLE password_history (
     uuid CHAR(36) NOT NULL PRIMARY KEY,
     password VARCHAR(255) NOT NULL,
@@ -41,15 +48,20 @@ CREATE TABLE password_history (
     CONSTRAINT fk_pw_history_account_uuid FOREIGN KEY (account_uuid) REFERENCES account (uuid)
 );
 CREATE UNIQUE INDEX idx_pw_history_account_uuid ON password_history (account_uuid);
+
+-- auth code table
 CREATE TABLE authcode (
     id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     auth_code CHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
     revoked BOOLEAN NOT NULL,
+    client_uuid CHAR(36) NOT NULL,
     account_uuid CHAR(36) NOT NULL,
     CONSTRAINT fk_account_authcode_id FOREIGN KEY (account_uuid) REFERENCES account (uuid)
 );
 CREATE UNIQUE INDEX idx_account_auth_code ON authcode (auth_code);
+
+-- client table
 CREATE TABLE client (
     uuid CHAR(36) NOT NULL PRIMARY KEY,
     client_id CHAR(36) NOT NULL,
@@ -62,6 +74,8 @@ CREATE TABLE client (
 );
 CREATE UNIQUE INDEX idx_client_clientname ON client(client_name);
 CREATE UNIQUE INDEX idx_client_clientid ON client(client_id);
+
+-- redirect table
 CREATE TABLE redirect (
     uuid CHAR(36) NOT NULL PRIMARY KEY,
     redirect_url CHAR(36) NOT NULL,
@@ -70,6 +84,8 @@ CREATE TABLE redirect (
     CONSTRAINT fk_redirect_client_uuid FOREIGN KEY (client_uuid) REFERENCES client (uuid)
 );
 CREATE UNIQUE INDEX idx_redirect ON redirect (redirect_url);
+
+-- client scope xref table
 CREATE TABLE account_client (
     id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     account_uuid CHAR(36) NOT NULL,
@@ -80,6 +96,8 @@ CREATE TABLE account_client (
 );
 CREATE INDEX idx_account_client_xref ON account_client(account_uuid);
 CREATE INDEX idx_client_account_xref ON account_client(client_uuid);
+
+-- service token table
 CREATE TABLE servicetoken (
     uuid CHAR(36) PRIMARY KEY,
     service_name VARCHAR(32) NOT NULL,

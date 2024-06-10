@@ -20,11 +20,11 @@ type LoginHandler interface {
 	HandleLogin(w http.ResponseWriter, r *http.Request)
 }
 
-func NewLoginHandler(user session.UserAuthService, client ClientService, verifier jwt.JwtVerifier) LoginHandler {
+func NewLoginHandler(user session.UserAuthService, oauthFlow OuathFlowService, verifier jwt.JwtVerifier) LoginHandler {
 	return &loginHandler{
-		authService:   user,
-		clientService: client,
-		s2sVerifier:   verifier,
+		authService:      user,
+		oauthFlowService: oauthFlow,
+		s2sVerifier:      verifier,
 
 		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentLogin)),
 	}
@@ -33,9 +33,9 @@ func NewLoginHandler(user session.UserAuthService, client ClientService, verifie
 var _ LoginHandler = (*loginHandler)(nil)
 
 type loginHandler struct {
-	authService   session.UserAuthService
-	clientService ClientService
-	s2sVerifier   jwt.JwtVerifier
+	authService      session.UserAuthService
+	oauthFlowService OuathFlowService
+	s2sVerifier      jwt.JwtVerifier
 
 	logger *slog.Logger
 }
@@ -111,8 +111,19 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if valid, err := h.clientService.IsValidRedirect(cmd.ClientId, cmd.Redirect); !valid {
+		if valid, err := h.oauthFlowService.IsValidRedirect(cmd.ClientId, cmd.Redirect); !valid {
 			h.logger.Error("failed to validate redirect url", "err", err.Error())
+			errChan <- err
+		}
+	}()
+
+	// validate user association with client
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if valid, err := h.oauthFlowService.IsValidClient(cmd.ClientId, cmd.Username); !valid {
+			h.logger.Error("failed to validate user association with client", "err", err.Error())
+			errChan <- err
 		}
 	}()
 
@@ -143,9 +154,7 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// create token
+	// generate and persist auth code
+	// authCode, err := h.oauthFlowService.GenerateAuthCode(cmd.ClientId, cmd.Username)
 
-	// create refresh
-
-	// respond with auth code, etc.
 }

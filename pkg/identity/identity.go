@@ -121,8 +121,8 @@ func New(config config.Config) (Identity, error) {
 		MaxBackoff:  10 * time.Second,
 	}
 
-	// s2s callers
-	ranCaller := connect.NewS2sCaller(config.ServiceAuth.Url, "ran", client, retry)
+	// s2s caller
+	s2sCaller := connect.NewS2sCaller(config.ServiceAuth.Url, util.S2sServiceName, client, retry)
 
 	// s2s token provider
 	s2sCreds := session.S2sCredentials{
@@ -130,13 +130,13 @@ func New(config config.Config) (Identity, error) {
 		ClientSecret: config.ServiceAuth.ClientSecret,
 	}
 
-	s2sProvider := session.NewS2sTokenProvider(ranCaller, s2sCreds, repository, cryptor)
+	s2sProvider := session.NewS2sTokenProvider(s2sCaller, s2sCreds, repository, cryptor)
 
 	// user jwt signer
 	// TODO: implement user jwt signer when build login service
 
 	// registration service
-	regService := register.NewRegistrationService(repository, cryptor, indexer, s2sProvider, ranCaller)
+	regService := register.NewRegistrationService(repository, cryptor, indexer, s2sProvider, s2sCaller)
 
 	// login service
 	// TODO: implement login service

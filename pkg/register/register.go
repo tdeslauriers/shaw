@@ -141,8 +141,8 @@ func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
 	r.logger.Info(fmt.Sprintf("user %s successfully saved in account table", cmd.Username))
 
 	// add profile, blog service scopes r, w
-	// get s2s ran token to retreive scopes
-	s2stoken, err := r.s2sToken.GetServiceToken("ran")
+	// get s2s service endpoint token to retreive scopes
+	s2stoken, err := r.s2sToken.GetServiceToken(util.S2sServiceName)
 	if err != nil {
 		r.logger.Error("failed to get s2s token to retreive scopes", "err", err.Error())
 		return errors.New(BuildUserErrMsg)
