@@ -314,7 +314,7 @@ func TestGenerateAuthCode(t *testing.T) {
 			redirect: RealRedirect,
 			err:      nil,
 		},
-		// TODA: add more test cases => ERROR CASES
+		// TODO: add more test cases => ERROR CASES
 	}
 
 	for _, tc := range testCases {
@@ -324,11 +324,11 @@ func TestGenerateAuthCode(t *testing.T) {
 			cr := NewOauthFlowService(&mockSqlRepository{}, &mockCryptor{}, &mockIndexer{}, &mockS2sTokenProvider{}, &mockS2sCaller{})
 
 			code, err := cr.GenerateAuthCode(tc.username, tc.clientId, tc.redirect)
-			if !validate.IsValidUuid(code) {
-				t.Errorf("expected auth code as valid uuid, got %v", code)
-			}
 			if err != nil && err.Error() != tc.err.Error() {
 				t.Errorf("expected %v, got %v", tc.err, err)
+			}
+			if !validate.IsValidUuid(code) {
+				t.Errorf("expected auth code as valid uuid, got %v", code)
 			}
 		})
 	}
