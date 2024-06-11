@@ -51,15 +51,28 @@ CREATE UNIQUE INDEX idx_pw_history_account_uuid ON password_history (account_uui
 
 -- auth code table
 CREATE TABLE authcode (
-    id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    auth_code CHAR(36) NOT NULL,
+    uuid CHAR(36) PRIMARY KEY,
+    authcode_index VARCHAR(128) NOT NULL,
+    authcode VARCHAR(128) NOT NULL,
+    client_uuid VARCHAR(128) NOT NULL,
+    redirect_url VARCHAR(2048) NOT NULL,
+    scopes VARCHAR(1024) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    revoked BOOLEAN NOT NULL,
-    client_uuid CHAR(36) NOT NULL,
-    account_uuid CHAR(36) NOT NULL,
-    CONSTRAINT fk_account_authcode_id FOREIGN KEY (account_uuid) REFERENCES account (uuid)
+    claimed BOOLEAN NOT NULL,
+    revoked BOOLEAN NOT NULL
 );
-CREATE UNIQUE INDEX idx_account_auth_code ON authcode (auth_code);
+CREATE UNIQUE INDEX idx_authcode ON authcode(auth_code);
+
+-- auth code account xref table
+CREATE TABLE authcode_account (
+    id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    authcode_uuid CHAR(36) NOT NULL,
+    account_uuid CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    CONSTRAINT fk_authcode_account_xref_id FOREIGN KEY (account_uuid) REFERENCES account (uuid),
+    CONSTRAINT fk_account_authcode_xref_id FOREIGN KEY (authcode_uuid) REFERENCES authcode (uuid)
+);
+CREATE INDEX idx_authcode_account_xref ON authcode_account(authcode_uuid);
 
 -- client table
 CREATE TABLE client (

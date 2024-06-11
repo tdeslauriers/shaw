@@ -63,10 +63,10 @@ func (dao *mockRegisterSqlRepository) Close() error { return nil }
 // mock registration service cryptor
 type mockRegisterCryptor struct{}
 
-func (c *mockRegisterCryptor) EncyptServiceData(plaintext string) (string, error) {
+func (c *mockRegisterCryptor) EncryptServiceData(plaintext string) (string, error) {
 	return fmt.Sprintf("encrypted-%s", plaintext), nil
 }
-func (c *mockRegisterCryptor) DecyptServiceData(string) (string, error) { return "", nil }
+func (c *mockRegisterCryptor) DecryptServiceData(string) (string, error) { return "", nil }
 
 // mock s2s token provider
 type mockRegisterS2sTokenProvider struct{}

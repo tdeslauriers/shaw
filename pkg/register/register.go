@@ -85,7 +85,7 @@ func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
 		return errors.New(BuildUserErrMsg)
 	}
 
-	username, err := r.cipher.EncyptServiceData(cmd.Username)
+	username, err := r.cipher.EncryptServiceData(cmd.Username)
 	if err != nil {
 		r.logger.Error("failed to field level encrypt user registration username/email", "err", err.Error())
 		return errors.New(BuildUserErrMsg)
@@ -98,19 +98,19 @@ func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
 		return errors.New(BuildUserErrMsg)
 	}
 
-	first, err := r.cipher.EncyptServiceData(cmd.Firstname)
+	first, err := r.cipher.EncryptServiceData(cmd.Firstname)
 	if err != nil {
 		r.logger.Error("failed to field level encrypt user registration firstname", "err", err.Error())
 		return errors.New(BuildUserErrMsg)
 	}
 
-	last, err := r.cipher.EncyptServiceData(cmd.Lastname)
+	last, err := r.cipher.EncryptServiceData(cmd.Lastname)
 	if err != nil {
 		r.logger.Error("failed to field level encrypt user registration lastname", "err", err.Error())
 		return errors.New(BuildUserErrMsg)
 	}
 
-	dob, err := r.cipher.EncyptServiceData(cmd.Birthdate)
+	dob, err := r.cipher.EncryptServiceData(cmd.Birthdate)
 	if err != nil {
 		r.logger.Error("failed to field level encrypt user registration dob", "err", err.Error())
 		return errors.New(BuildUserErrMsg)

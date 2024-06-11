@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/tdeslauriers/carapace/pkg/session"
+	"github.com/tdeslauriers/carapace/pkg/validate"
 )
 
 const (
@@ -15,26 +18,44 @@ const (
 	RealAccountUuid = "real-account-uuid"
 	RealUserIndex   = "index-" + RealUsername
 	RealClientUuid  = "real-client-uuid"
+
+	ScopeOneId   = "1234-scope"
+	ScopeTwoId   = "5678-scope"
+	ScopeThreeId = "9012-scope"
+	ScopeFourId  = "3456-scope"
 )
-
-type mockIndexer struct{}
-
-func (i *mockIndexer) ObtainBlindIndex(username string) (string, error) {
-
-	return fmt.Sprintf("index-%s", username), nil
-}
 
 type mockSqlRepository struct {
 }
 
 func (dao *mockSqlRepository) SelectRecords(query string, records interface{}, args ...interface{}) error {
-	return nil
+
+	switch r := records.(type) {
+	case *[]AccountScope:
+		if args[0] != RealUserIndex {
+			return sql.ErrNoRows
+		} else {
+			*records.(*[]AccountScope) = []AccountScope{
+				{
+					AccountUuid: RealAccountUuid,
+					ScopeUuid:   ScopeOneId,
+				},
+				{
+					AccountUuid: RealAccountUuid,
+					ScopeUuid:   ScopeTwoId,
+				},
+			}
+			return nil
+		}
+	default:
+		return fmt.Errorf("SelectRecords() records interface was given unexpected type, expected []AccountScope, got %T", r)
+	}
 }
 
 // mocks the SelectRecord method of the SqlRepository interface used by isValidRedirect func
 func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, args ...interface{}) error {
 
-	switch record.(type) {
+	switch r := record.(type) {
 	case *ClientRedirect:
 		if args[0] != RealClient || args[1] != RealRedirect {
 			return sql.ErrNoRows
@@ -70,7 +91,7 @@ func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, arg
 		}
 		return nil
 	default:
-		return errors.New("error with mock Select Record method")
+		return fmt.Errorf("SelectRecord() record interface was given unexpected type, expected ClientRedirect or AccountClient, got %T", r)
 	}
 
 }
@@ -81,6 +102,76 @@ func (dao *mockSqlRepository) InsertRecord(query string, record interface{}) err
 func (dao *mockSqlRepository) UpdateRecord(query string, args ...interface{}) error { return nil }
 func (dao *mockSqlRepository) DeleteRecord(query string, args ...interface{}) error { return nil }
 func (dao *mockSqlRepository) Close() error                                         { return nil }
+
+type mockCryptor struct{}
+
+func (c *mockCryptor) EncryptServiceData(plaintext string) (string, error) {
+	return fmt.Sprintf("encrypted-%s", plaintext), nil
+}
+
+func (c *mockCryptor) DecryptServiceData(ciphertext string) (string, error) { return ciphertext, nil }
+
+type mockIndexer struct{}
+
+func (i *mockIndexer) ObtainBlindIndex(identifier string) (string, error) {
+	return fmt.Sprintf("index-%s", identifier), nil
+}
+
+type mockS2sTokenProvider struct{}
+
+func (s2s *mockS2sTokenProvider) GetServiceToken(serviceName string) (string, error) {
+	return fmt.Sprintf("valid-%s-service-token", serviceName), nil
+}
+
+type mockS2sCaller struct{}
+
+func (s2s *mockS2sCaller) GetServiceData(endpoint, s2sToken, AccessToken string, data interface{}) error {
+
+	switch d := data.(type) {
+	case *[]session.Scope:
+		*data.(*[]session.Scope) = []session.Scope{
+			{
+				Uuid:        ScopeOneId,
+				ServiceName: "service-one",
+				Scope:       "r:service-one:scope-one:*",
+				Name:        "scope-one",
+				Description: "scope-one",
+				Active:      true,
+			},
+			{
+				Uuid:        ScopeTwoId,
+				ServiceName: "service-two",
+				Scope:       "r:service-two:scope-two:*",
+				Name:        "scope-two",
+				Description: "scope-two",
+				Active:      true,
+			},
+			{
+				Uuid:        ScopeThreeId,
+				ServiceName: "service-three",
+				Scope:       "r:service-three:scope-three:*",
+				Name:        "scope-three",
+				Description: "scope-three",
+				Active:      true,
+			},
+			{
+				Uuid:        ScopeFourId,
+				ServiceName: "service-four",
+				Scope:       "r:service-four:scope-four:*",
+				Name:        "scope-four",
+				Description: "scope-four",
+				Active:      true,
+			},
+		}
+		return nil
+	default:
+		return fmt.Errorf("GetServiceData() data interface was given unexpected type, expected []Scope, got %T", d)
+	}
+}
+
+func (s2s *mockS2sCaller) PostToService(endpoint, s2sToken, AccessToken string, cmd interface{}, data interface{}) error {
+	return nil
+}
 
 func TestIsValidRedirect(t *testing.T) {
 	testCases := []struct {
@@ -132,7 +223,7 @@ func TestIsValidRedirect(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			// create a new clientRegistration with a mockSqlRepository
-			cr := NewOauthFlowService(&mockSqlRepository{}, &mockIndexer{})
+			cr := NewOauthFlowService(&mockSqlRepository{}, nil, &mockIndexer{}, nil, nil)
 
 			valid, err := cr.IsValidRedirect(tc.clientId, tc.redirect)
 			if valid != tc.valid {
@@ -195,7 +286,7 @@ func TestIsValidClient(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			// create a new clientRegistration with a mockSqlRepository
-			cr := NewOauthFlowService(&mockSqlRepository{}, &mockIndexer{})
+			cr := NewOauthFlowService(&mockSqlRepository{}, nil, &mockIndexer{}, nil, nil)
 
 			valid, err := cr.IsValidClient(tc.client, tc.username)
 			if valid != tc.valid {
@@ -203,6 +294,41 @@ func TestIsValidClient(t *testing.T) {
 			}
 			if !valid && err != nil && !strings.Contains(err.Error(), tc.err.Error()) {
 				t.Errorf("expected error to contain %v, got %v", tc.err.Error(), err.Error())
+			}
+		})
+	}
+}
+
+func TestGenerateAuthCode(t *testing.T) {
+	testCases := []struct {
+		name     string
+		username string
+		clientId string
+		redirect string
+		err      error
+	}{
+		{
+			name:     "valid auth code generation",
+			username: RealUsername,
+			clientId: RealClient,
+			redirect: RealRedirect,
+			err:      nil,
+		},
+		// TODA: add more test cases => ERROR CASES
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+
+			// create a new clientRegistration with a mockSqlRepository
+			cr := NewOauthFlowService(&mockSqlRepository{}, &mockCryptor{}, &mockIndexer{}, &mockS2sTokenProvider{}, &mockS2sCaller{})
+
+			code, err := cr.GenerateAuthCode(tc.username, tc.clientId, tc.redirect)
+			if !validate.IsValidUuid(code) {
+				t.Errorf("expected auth code as valid uuid, got %v", code)
+			}
+			if err != nil && err.Error() != tc.err.Error() {
+				t.Errorf("expected %v, got %v", tc.err, err)
 			}
 		})
 	}

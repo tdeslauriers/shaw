@@ -2,6 +2,7 @@ package authentication
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
@@ -102,17 +103,17 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer wg.Done()
 		if err := h.authService.ValidateCredentials(cmd.Username, cmd.Password); err != nil {
-			h.logger.Error("failed to validate user credentials", "err", err.Error())
+			h.logger.Error(fmt.Sprintf("failed to validate user credentials to for user %s", cmd.Username), "err", err.Error())
 			errChan <- err
 		}
 	}()
 
-	// validate redirect url
+	// validate redirect url association with client
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		if valid, err := h.oauthFlowService.IsValidRedirect(cmd.ClientId, cmd.Redirect); !valid {
-			h.logger.Error("failed to validate redirect url", "err", err.Error())
+			h.logger.Error(fmt.Sprintf("failed to validate redirect url (%s) association with client id (%s)", cmd.Username, cmd.Redirect), "err", err.Error())
 			errChan <- err
 		}
 	}()
@@ -122,7 +123,7 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer wg.Done()
 		if valid, err := h.oauthFlowService.IsValidClient(cmd.ClientId, cmd.Username); !valid {
-			h.logger.Error("failed to validate user association with client", "err", err.Error())
+			h.logger.Error(fmt.Sprintf("failed to validate user (%s) association with client (%s)", cmd.Username, cmd.ClientId), "err", err.Error())
 			errChan <- err
 		}
 	}()
@@ -155,6 +156,34 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// generate and persist auth code
-	// authCode, err := h.oauthFlowService.GenerateAuthCode(cmd.ClientId, cmd.Username)
+	authCode, err := h.oauthFlowService.GenerateAuthCode(cmd.Username, cmd.ClientId, cmd.Redirect)
+	if err != nil {
+		h.logger.Error(fmt.Sprintf("failed to generate auth code for user %s", cmd.Username), "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "failed to generate auth code",
+		}
+		e.SendJsonErr(w)
+		return
+	}
 
+	// return auth code
+	authCodeResponse := session.AuthCodeResponse{
+		AuthCode: authCode,
+		State:    cmd.State,
+		Nonce:    cmd.Nonce,
+		ClientId: cmd.ClientId,
+		Redirect: cmd.Redirect,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(authCodeResponse); err != nil {
+		h.logger.Error(fmt.Sprintf("failed to encode auth code response for user (%s) login", cmd.Username), "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "failed to send auth code response body due to internal service error",
+		}
+		e.SendJsonErr(w)
+		return
+	}
 }
