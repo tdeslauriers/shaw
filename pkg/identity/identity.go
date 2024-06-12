@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
+	"shaw/pkg/authentication"
 	"shaw/pkg/register"
 	"time"
 
@@ -133,13 +134,29 @@ func New(config config.Config) (Identity, error) {
 	s2sProvider := session.NewS2sTokenProvider(s2sCaller, s2sCreds, repository, cryptor)
 
 	// user jwt signer
-	// TODO: implement user jwt signer when build login service
+	privPem, err := base64.StdEncoding.DecodeString(config.Jwt.UserSigningKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode user jwt-signing key: %v", err)
+	}
+	privBlock, _ := pem.Decode(privPem)
+	privateKey, err := x509.ParseECPrivateKey(privBlock.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse priv Block to private key: %v", err)
+	}
+
+	signer := jwt.NewJwtSigner(privateKey)
+
+	// user jwt verifier
+	//TODO: implement user jwt verifier
 
 	// registration service
 	regService := register.NewRegistrationService(repository, cryptor, indexer, s2sProvider, s2sCaller)
 
-	// login service
-	// TODO: implement login service
+	// auth service
+	authService := authentication.NewUserAuthService(repository, signer, indexer, cryptor)
+
+	// oauth flow service
+	oathFlowService := authentication.NewOauthFlowService(repository, cryptor, indexer, s2sProvider, s2sCaller)
 
 	// refresh service
 	// TODO: implement refresh service
@@ -153,7 +170,8 @@ func New(config config.Config) (Identity, error) {
 		repository:      repository,
 		s2sVerifier:     s2sVerifier,
 		registerService: regService,
-		// login service
+		authService:     authService,
+		oathFlowService: oathFlowService,
 		// refresh service
 		// password change service
 
@@ -169,7 +187,8 @@ type identity struct {
 	repository      data.SqlRepository
 	s2sVerifier     jwt.JwtVerifier
 	registerService register.RegistrationService
-	// login service
+	authService     session.UserAuthService
+	oathFlowService authentication.OauthFlowService
 	// refresh service
 	// password change service
 
@@ -189,7 +208,10 @@ func (i *identity) Run() error {
 	regHander := register.NewRegistrationHandler(i.registerService, i.s2sVerifier)
 
 	// login handler
-	// TODO: implement login handler
+	loginHandler := authentication.NewLoginHandler(i.authService, i.oathFlowService, i.s2sVerifier)
+
+	// oauth callback handler
+	// TODO: implement oauth callback handler
 
 	// refresh handler
 	// TODO: implement refresh handler
@@ -200,6 +222,7 @@ func (i *identity) Run() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", diagnostics.HealthCheckHandler)
 	mux.HandleFunc("/register", regHander.HandleRegistration)
+	mux.HandleFunc("/login", loginHandler.HandleLogin)
 
 	identityServer := &connect.TlsServer{
 		Addr:      ":8445",
