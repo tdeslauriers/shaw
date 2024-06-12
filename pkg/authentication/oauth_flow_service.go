@@ -258,7 +258,7 @@ func (svc *oauthFlowService) GenerateAuthCode(username, clientId, redirect strin
 
 	// return error either call returns no scopes
 	if len(userScopes) < 1 {
-		return "", fmt.Errorf("no scopes found for user %s", username)
+		return "", fmt.Errorf("no scopes found for user (%s)", username)
 	}
 	if len(scopes) < 1 {
 		return "", errors.New("no scopes returned from s2s scopes endpoint")

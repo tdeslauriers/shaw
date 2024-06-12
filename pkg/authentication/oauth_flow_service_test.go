@@ -23,8 +23,10 @@ const (
 	ScopeTwoId   = "5678-scope"
 	ScopeThreeId = "9012-scope"
 	ScopeFourId  = "3456-scope"
+	ScopeFiveId  = "7890-scope"
 )
 
+// mock sql repository
 type mockSqlRepository struct {
 }
 
@@ -111,18 +113,21 @@ func (c *mockCryptor) EncryptServiceData(plaintext string) (string, error) {
 
 func (c *mockCryptor) DecryptServiceData(ciphertext string) (string, error) { return ciphertext, nil }
 
+// mock Indexer
 type mockIndexer struct{}
 
 func (i *mockIndexer) ObtainBlindIndex(identifier string) (string, error) {
 	return fmt.Sprintf("index-%s", identifier), nil
 }
 
+// mock S2sTokenProvider
 type mockS2sTokenProvider struct{}
 
 func (s2s *mockS2sTokenProvider) GetServiceToken(serviceName string) (string, error) {
 	return fmt.Sprintf("valid-%s-service-token", serviceName), nil
 }
 
+// mock S2sCaller
 type mockS2sCaller struct{}
 
 func (s2s *mockS2sCaller) GetServiceData(endpoint, s2sToken, AccessToken string, data interface{}) error {
@@ -144,7 +149,7 @@ func (s2s *mockS2sCaller) GetServiceData(endpoint, s2sToken, AccessToken string,
 				Scope:       "r:service-two:scope-two:*",
 				Name:        "scope-two",
 				Description: "scope-two",
-				Active:      true,
+				Active:      false,
 			},
 			{
 				Uuid:        ScopeThreeId,
@@ -160,6 +165,14 @@ func (s2s *mockS2sCaller) GetServiceData(endpoint, s2sToken, AccessToken string,
 				Scope:       "r:service-four:scope-four:*",
 				Name:        "scope-four",
 				Description: "scope-four",
+				Active:      true,
+			},
+			{
+				Uuid:        ScopeFiveId,
+				ServiceName: "service-five",
+				Scope:       "r:service-five:scope-five:*",
+				Name:        "scope-five",
+				Description: "scope-five",
 				Active:      true,
 			},
 		}
@@ -314,7 +327,34 @@ func TestGenerateAuthCode(t *testing.T) {
 			redirect: RealRedirect,
 			err:      nil,
 		},
-		// TODO: add more test cases => ERROR CASES
+		{
+			name:     "invalid user",
+			username: "invalid-username@invalid.domain",
+			clientId: RealClient,
+			redirect: RealRedirect,
+			err:      errors.New("no scopes found for user"),
+		},
+		{
+			name:     "empty user",
+			username: "",
+			clientId: RealClient,
+			redirect: RealRedirect,
+			err:      errors.New("no scopes found for user"),
+		},
+		{
+			name:     "invalid client",
+			username: RealUsername,
+			clientId: "invalid-client-uuid",
+			redirect: RealRedirect,
+			err:      errors.New("no scopes found for user"),
+		},
+		{
+			name:     "empty client",
+			username: RealUsername,
+			clientId: "",
+			redirect: RealRedirect,
+			err:      errors.New("no scopes found for user"),
+		},
 	}
 
 	for _, tc := range testCases {
@@ -324,10 +364,10 @@ func TestGenerateAuthCode(t *testing.T) {
 			cr := NewOauthFlowService(&mockSqlRepository{}, &mockCryptor{}, &mockIndexer{}, &mockS2sTokenProvider{}, &mockS2sCaller{})
 
 			code, err := cr.GenerateAuthCode(tc.username, tc.clientId, tc.redirect)
-			if err != nil && err.Error() != tc.err.Error() {
+			if err != nil && !strings.Contains(err.Error(), tc.err.Error()) {
 				t.Errorf("expected %v, got %v", tc.err, err)
 			}
-			if !validate.IsValidUuid(code) {
+			if err == nil && !validate.IsValidUuid(code) {
 				t.Errorf("expected auth code as valid uuid, got %v", code)
 			}
 		})
