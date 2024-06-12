@@ -188,6 +188,25 @@ func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
 		}(scope)
 	}
 
+	// TOOD: Associate user with client
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		xref := session.UserAccountClientXref{
+			Id:        0,           // auto increment
+			AccountId: id.String(), // user id from above
+			ClientId:  "",
+			CreatedAt: createdAt.Format("2006-01-02 15:04:05"),
+		}
+
+		query := "INSERT INTO account_client (id, account_uuid, client_uuid, created_at) VALUES (?, ?, ?, ?)"
+		if err := r.db.InsertRecord(query, xref); err != nil {
+			r.logger.Error(fmt.Sprintf("failed to associate user %s with client %s", cmd.Username, ""), "err", err.Error())
+			return
+		}
+		r.logger.Info(fmt.Sprintf("user %s successfully associated with client %s", cmd.Username, ""))
+	}()
+
 	wg.Wait()
 	r.logger.Info(fmt.Sprintf("successfully assigned and saved all default scopes to user %s", cmd.Username))
 

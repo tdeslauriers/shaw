@@ -16,8 +16,8 @@ func main() {
 
 	// service definition
 	def := config.SvcDefinition{
-		Name: "shaw",
-		Tls:  config.MutualTls,
+		ServiceName: "shaw",
+		Tls:         config.MutualTls,
 		Requires: config.Requires{
 			Client:           true,
 			Db:               true,
@@ -34,20 +34,20 @@ func main() {
 	// load env vars
 	config, err := config.Load(def)
 	if err != nil {
-		logger.Error(fmt.Sprintf("failed to load %s identity service config", def.Name), "err", err.Error())
+		logger.Error(fmt.Sprintf("failed to load %s identity service config", def.ServiceName), "err", err.Error())
 		os.Exit(1)
 	}
 
 	identity, err := identity.New(*config)
 	if err != nil {
-		logger.Error(fmt.Sprintf("failed to create %s identity service", config.Name), "err", err.Error())
+		logger.Error(fmt.Sprintf("failed to create %s identity service", config.ServiceName), "err", err.Error())
 		os.Exit(1)
 	}
 
 	defer identity.CloseDb()
 
 	if err := identity.Run(); err != nil {
-		logger.Error(fmt.Sprintf("failed to run %s identity service", config.Name), "err", err.Error())
+		logger.Error(fmt.Sprintf("failed to run %s identity service", config.ServiceName), "err", err.Error())
 		os.Exit(1)
 	}
 

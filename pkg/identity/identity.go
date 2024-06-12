@@ -113,7 +113,7 @@ func New(config config.Config) (Identity, error) {
 		return nil, fmt.Errorf("not an ECDSA public key")
 	}
 
-	s2sVerifier := jwt.NewJwtVerifier(config.Name, publicKey)
+	s2sVerifier := jwt.NewJwtVerifier(config.ServiceName, publicKey)
 
 	// retry config for s2s callers
 	retry := connect.RetryConfiguration{
@@ -225,15 +225,15 @@ func (i *identity) Run() error {
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
 
 	identityServer := &connect.TlsServer{
-		Addr:      ":8445",
+		Addr:      i.config.ServicePort,
 		Mux:       mux,
 		TlsConfig: i.serverTls,
 	}
 
 	go func() {
-		i.logger.Info(fmt.Sprintf("starting %s service on port %s...", i.config.Name, identityServer.Addr[1:]))
+		i.logger.Info(fmt.Sprintf("starting %s service on port %s...", i.config.ServiceName, identityServer.Addr[1:]))
 		if err := identityServer.Initialize(); err != http.ErrServerClosed {
-			i.logger.Error(fmt.Sprintf("failed to start %s user authentication service", i.config.Name), "err", err.Error())
+			i.logger.Error(fmt.Sprintf("failed to start %s user authentication service", i.config.ServiceName), "err", err.Error())
 		}
 	}()
 
