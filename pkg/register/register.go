@@ -18,6 +18,7 @@ import (
 var defaultScopes []string = []string{"r:silhouette:profile:*", "e:silhouette:profile:*", "r:junk:*"}
 
 type RegistrationService interface {
+	// Register registers a new user account and creates appropriate xrefs for default scopes and client(s)
 	Register(session.UserRegisterCmd) error
 }
 
@@ -49,7 +50,7 @@ const (
 	BuildUserErrMsg = "failed to build/persist user record"
 )
 
-// assumes fields have passed input validation
+// Register implements the RegistrationService interface
 func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
 
 	// validate registration fields

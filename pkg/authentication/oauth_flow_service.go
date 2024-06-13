@@ -89,8 +89,14 @@ type AccountScope struct {
 }
 
 type OauthFlowService interface {
+	// IsVaildRedirect validates the client and redirect url exist, are linked, and are enabled/not expired/not locked
 	IsValidRedirect(clientid, url string) (bool, error)
+
+	// IsValidClient validates the client and user are linked, enabled, not expired, not locked
 	IsValidClient(clientid, username string) (bool, error)
+
+	// GenerateAuthCode generates an auth code for and persists it to the db along with the user's scopes, the client, and the redirect url,
+	// associating it with the user so that it can be used to mint a token on callback from the client
 	GenerateAuthCode(username, client, redirect string) (string, error)
 }
 
@@ -118,7 +124,7 @@ type oauthFlowService struct {
 	logger *slog.Logger
 }
 
-// isVaildRedirect validates the client and redirect url exist, are linked, and are enabled/not expired/not locked
+// IsValidRedirect implements the OauthFlowService interface
 func (svc *oauthFlowService) IsValidRedirect(clientId, redirect string) (bool, error) {
 
 	// remove any query params from redirect url
@@ -176,6 +182,7 @@ func (svc *oauthFlowService) IsValidRedirect(clientId, redirect string) (bool, e
 	return true, nil
 }
 
+// IsValidClient implements the OauthFlowService interface
 func (svc *oauthFlowService) IsValidClient(clientId, username string) (bool, error) {
 
 	// re-generate user index
@@ -242,8 +249,7 @@ func (svc *oauthFlowService) IsValidClient(clientId, username string) (bool, err
 	return true, nil
 }
 
-// GenerateAuthCode generates an auth code for and persists it to the db along with the user's scopes, the client, and the redirect url,
-// associating it with the user so that it can be used to mint a token on callback from the client
+// GenerateAuthCode implements the OauthFlowService interface
 func (svc *oauthFlowService) GenerateAuthCode(username, clientId, redirect string) (string, error) {
 
 	// get user's scopes and all scopes

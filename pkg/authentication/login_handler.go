@@ -128,6 +128,15 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// validate response type is appropriate
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if cmd.ResponseType != string(session.AuthCode) {
+			errChan <- fmt.Errorf("invalid response type")
+		}
+	}()
+
 	go func() {
 		wg.Wait()
 		close(errChan)
