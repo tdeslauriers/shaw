@@ -113,7 +113,7 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer wg.Done()
 		if valid, err := h.oauthFlowService.IsValidRedirect(cmd.ClientId, cmd.Redirect); !valid {
-			h.logger.Error(fmt.Sprintf("failed to validate redirect url (%s) association with client id (%s)", cmd.Username, cmd.Redirect), "err", err.Error())
+			h.logger.Error(fmt.Sprintf("failed to validate redirect url (%s) association with client id (%s)", cmd.Redirect, cmd.ClientId), "err", err.Error())
 			errChan <- err
 		}
 	}()
@@ -178,11 +178,12 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// return auth code
 	authCodeResponse := session.AuthCodeResponse{
-		AuthCode: authCode,
-		State:    cmd.State,
-		Nonce:    cmd.Nonce,
-		ClientId: cmd.ClientId,
-		Redirect: cmd.Redirect,
+		AuthCode:     authCode,
+		ResponseType: session.ResponseType(cmd.ResponseType),
+		State:        cmd.State,
+		Nonce:        cmd.Nonce,
+		ClientId:     cmd.ClientId,
+		Redirect:     cmd.Redirect,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

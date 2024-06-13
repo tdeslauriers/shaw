@@ -54,7 +54,7 @@ func (s *userAuthService) ValidateCredentials(username, password string) error {
 			password,
 			firstname,
 			lastname,
-			birthdate,
+			birth_date,
 			created_at,
 			enabled,
 			account_expired,

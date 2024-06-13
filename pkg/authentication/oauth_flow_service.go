@@ -133,7 +133,7 @@ func (svc *oauthFlowService) IsValidRedirect(clientId, redirect string) (bool, e
 		return false, fmt.Errorf("failed to parse redirect url: %v", err)
 	}
 
-	url := url.URL{
+	snipped := &url.URL{
 		Scheme: parsed.Scheme,
 		Host:   parsed.Host,
 		Path:   parsed.Path,
@@ -154,7 +154,7 @@ func (svc *oauthFlowService) IsValidRedirect(clientId, redirect string) (bool, e
 		WHERE c.client_id = ? AND r.redirect_url = ?`
 
 	var result ClientRedirect
-	if err := svc.db.SelectRecord(qry, &result, clientId, url.String()); err != nil {
+	if err := svc.db.SelectRecord(qry, &result, clientId, snipped.String()); err != nil {
 		if err == sql.ErrNoRows {
 			return false, errors.New("client/redirect pair not found")
 		} else {
@@ -379,12 +379,12 @@ func (svc *oauthFlowService) getUserScopes(username string, wg *sync.WaitGroup, 
 
 	qry := `
 		SELECT
-			as.id,
-			as.account_uuid,
-			as.scope_uuid,
-			as.created_at
-		FROM account_scope as
-			LEFT OUTER JOIN account a ON as.account_uuid = a.uuid
+			asp.id,
+			asp.account_uuid,
+			asp.scope_uuid,
+			asp.created_at
+		FROM account_scope asp
+			LEFT OUTER JOIN account a ON asp.account_uuid = a.uuid
 		WHERE a.user_index = ?`
 
 	var scopes []AccountScope
