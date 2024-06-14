@@ -53,7 +53,7 @@ func (h *registrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 	svcToken := r.Header.Get("Service-Authorization")
 	if authorized, err := h.verifier.IsAuthorized(allowed, svcToken); !authorized {
 		if strings.Contains(err.Error(), "unauthorized") {
-			h.logger.Error("registration handler service token", "err", err.Error())
+			h.logger.Error("registration handler failed to validate service token", "err", err.Error())
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusUnauthorized,
 				Message:    err.Error(),
@@ -73,10 +73,10 @@ func (h *registrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 
 	var cmd session.UserRegisterCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
-		h.logger.Error("unable to decode json registration request body", "err", err.Error())
+		h.logger.Error("failed to decode json registration request body", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
-			Message:    "unable to decode json registration request body",
+			Message:    "failed to decode json registration request body",
 		}
 		e.SendJsonErr(w)
 		return
@@ -86,8 +86,8 @@ func (h *registrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 	// to differenciate between bad request or internal server error response
 	if err := cmd.ValidateCmd(); err != nil {
 		e := connect.ErrorHttp{
-			StatusCode: http.StatusBadRequest,
-			Message:    fmt.Sprintf("bad request: %v", err),
+			StatusCode: http.StatusUnprocessableEntity,
+			Message:    err.Error(),
 		}
 		e.SendJsonErr(w)
 		return

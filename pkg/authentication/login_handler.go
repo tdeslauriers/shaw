@@ -57,7 +57,7 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	svcToken := r.Header.Get("Service-Authorization")
 	if authorized, err := h.s2sVerifier.IsAuthorized(allowed, svcToken); !authorized {
 		if strings.Contains(err.Error(), "unauthorized") {
-			h.logger.Error("registration handler service token", "err", err.Error())
+			h.logger.Error("login handler failed to validate service token", "err", err.Error())
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusUnauthorized,
 				Message:    err.Error(),
@@ -88,7 +88,7 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	// lightweight validation: check for empty fields or too long
 	if err := cmd.ValidateCmd(); err != nil {
 		e := connect.ErrorHttp{
-			StatusCode: http.StatusBadRequest,
+			StatusCode: http.StatusUnprocessableEntity,
 			Message:    err.Error(),
 		}
 		e.SendJsonErr(w)
