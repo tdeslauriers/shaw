@@ -56,25 +56,40 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	// validate service token
 	svcToken := r.Header.Get("Service-Authorization")
 	if authorized, err := h.s2sVerifier.IsAuthorized(allowed, svcToken); !authorized {
-		if strings.Contains(err.Error(), "unauthorized") {
+		// check if error is a connect.ErrorHttp type
+		// handle if some other error type
+		errMsg, ok := err.(*connect.ErrorHttp)
+		if !ok {
 			h.logger.Error("login handler failed to validate service token", "err", err.Error())
 			e := connect.ErrorHttp{
+				StatusCode: http.StatusInternalServerError,
+				Message:    jwt.S2sUnauthorizedErrMsg,
+			}
+			e.SendJsonErr(w)
+			return
+		}
+
+		// handle unauthorized connect.ErrorHttp type
+		if strings.Contains(err.Error(), "unauthorized") {
+			h.logger.Error("login handler failed to validate service token", "err", errMsg.Message)
+			e := connect.ErrorHttp{
 				StatusCode: http.StatusUnauthorized,
-				Message:    err.Error(),
+				Message:    jwt.S2sUnauthorizedErrMsg,
 			}
 			e.SendJsonErr(w)
 			return
 		} else {
-			h.logger.Error("login handler service token authorization failed", "err", err.Error())
+			h.logger.Error("login handler failed to validate service token", "err", errMsg.Message)
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusInternalServerError,
-				Message:    "service token authorization failed due to interal server error",
+				Message:    jwt.S2sUnauthorizedErrMsg,
 			}
 			e.SendJsonErr(w)
 			return
 		}
 	}
 
+	// decode request body: user login cmd data
 	var cmd session.UserLoginCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		e := connect.ErrorHttp{
@@ -95,6 +110,7 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// validate user credentials, redirect url, client id, and response type concurrently
 	var wg sync.WaitGroup
 	errChan := make(chan error, 2)
 

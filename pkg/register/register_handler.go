@@ -49,28 +49,43 @@ func (h *registrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// validate service token
+	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
 	if authorized, err := h.verifier.IsAuthorized(allowed, svcToken); !authorized {
-		if strings.Contains(err.Error(), "unauthorized") {
+		// check if error is a connect.ErrorHttp type
+		// handle if some other error type
+		errMsg, ok := err.(*connect.ErrorHttp)
+		if !ok {
 			h.logger.Error("registration handler failed to validate service token", "err", err.Error())
 			e := connect.ErrorHttp{
+				StatusCode: http.StatusInternalServerError,
+				Message:    jwt.S2sUnauthorizedErrMsg,
+			}
+			e.SendJsonErr(w)
+			return
+		}
+
+		// handle unauthorized connect.ErrorHttp type
+		if strings.Contains(err.Error(), "unauthorized") {
+			h.logger.Error("registration handler failed to validate service token", "err", errMsg.Message)
+			e := connect.ErrorHttp{
 				StatusCode: http.StatusUnauthorized,
-				Message:    err.Error(),
+				Message:    jwt.S2sUnauthorizedErrMsg,
 			}
 			e.SendJsonErr(w)
 			return
 		} else {
-			h.logger.Error("registration handler service token authorization failed", "err", err.Error())
+			h.logger.Error("registration handler failed to validate service token", "err", errMsg.Message)
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusInternalServerError,
-				Message:    "service token authorization failed due to interal server error",
+				Message:    jwt.S2sUnauthorizedErrMsg,
 			}
 			e.SendJsonErr(w)
 			return
 		}
 	}
 
+	// decode request body: user registration cmd data
 	var cmd session.UserRegisterCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		h.logger.Error("failed to decode json registration request body", "err", err.Error())
@@ -95,8 +110,7 @@ func (h *registrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 
 	// register user
 	if err := h.regService.Register(cmd); err != nil {
-		if strings.Contains(err.Error(), "username unavailable") {
-			h.logger.Error(err.Error())
+		if err.Error() == UsernameUnavailableErrMsg {
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusConflict,
 				Message:    err.Error(),
@@ -104,10 +118,9 @@ func (h *registrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 			e.SendJsonErr(w)
 			return
 		} else {
-			h.logger.Error(fmt.Sprintf("failed to register new user %s", cmd.Username), "err", err.Error())
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusInternalServerError,
-				Message:    "user registration failed due to internal service error",
+				Message:    fmt.Sprintf("failed to register user %s: %s", cmd.Username, err.Error()),
 			}
 			e.SendJsonErr(w)
 			return

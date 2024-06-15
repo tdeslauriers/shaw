@@ -47,7 +47,13 @@ type registrationService struct {
 }
 
 const (
+	// BuildUserErrMsg is a genearlized error message returned a failed process in the Register method of the RegistationService interface.
+	// For example, a failure to create an user index or encrypt field level data.
+	// Intent is for consuming handler to check for this message and return a 500 status code.
 	BuildUserErrMsg = "failed to build/persist user record"
+	// UsernameUnavailableErrMsg is a error message returned when a user attempts to register with a username that already exists in the database.
+	// Intent is for consuming handler to check for this message and return a 409 status code.
+	UsernameUnavailableErrMsg = "username unavailable"
 )
 
 // Register implements the RegistrationService interface
@@ -64,7 +70,7 @@ func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
 	index, err := r.indexer.ObtainBlindIndex(cmd.Username)
 	if err != nil {
 		r.logger.Error("failed to create username index", "err", err.Error())
-		return errors.New("indexing failure")
+		return errors.New(BuildUserErrMsg)
 	}
 
 	// check if user already exists
@@ -76,7 +82,7 @@ func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
 	}
 	if exists {
 		r.logger.Error(fmt.Sprintf("username %s already exists", cmd.Username))
-		return errors.New("username unavailable")
+		return errors.New(UsernameUnavailableErrMsg)
 	}
 
 	// build user record / encrypt user data
@@ -166,6 +172,7 @@ func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
 
 	// insert xrefs
 	var wg sync.WaitGroup
+	xrefChan := make(chan error)
 	for _, scope := range defaults {
 
 		wg.Add(1)
@@ -182,6 +189,7 @@ func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
 			query := "INSERT INTO account_scope (id, account_uuid, scope_uuid, created_at) VALUES (?, ?, ?, ?)"
 			if err := r.db.InsertRecord(query, xref); err != nil {
 				r.logger.Error(fmt.Sprintf("failed to create xref record for %s - %s", cmd.Username, scope.Name), "err", err.Error())
+				xrefChan <- err
 				return
 			}
 			r.logger.Info(fmt.Sprintf("user %s successfully assigned default scope %s", cmd.Username, scope.Name))
@@ -189,26 +197,36 @@ func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
 		}(scope)
 	}
 
-	// TOOD: Associate user with client
+	// Associate user with client
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		xref := session.UserAccountClientXref{
 			Id:        0,           // auto increment
 			AccountId: id.String(), // user id from above
-			ClientId:  "",
+			ClientId:  cmd.ClientId,
 			CreatedAt: createdAt.Format("2006-01-02 15:04:05"),
 		}
 
 		query := "INSERT INTO account_client (id, account_uuid, client_uuid, created_at) VALUES (?, ?, ?, ?)"
 		if err := r.db.InsertRecord(query, xref); err != nil {
 			r.logger.Error(fmt.Sprintf("failed to associate user %s with client %s", cmd.Username, ""), "err", err.Error())
+			xrefChan <- err
 			return
 		}
 		r.logger.Info(fmt.Sprintf("user %s successfully associated with client %s", cmd.Username, ""))
 	}()
 
-	wg.Wait()
+	go func() {
+		wg.Wait()
+		close(xrefChan)
+	}()
+
+	// return err of xref associations failed
+	if len(xrefChan) > 0 {
+		return errors.New(BuildUserErrMsg)
+	}
+
 	r.logger.Info(fmt.Sprintf("successfully assigned and saved all default scopes to user %s", cmd.Username))
 
 	return nil
