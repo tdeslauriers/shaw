@@ -3,6 +3,7 @@ package register
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/tdeslauriers/carapace/pkg/session"
@@ -115,6 +116,8 @@ func (c *mockRegisterS2sCaller) GetServiceData(endpoint, s2sToken, authToken str
 func (c *mockRegisterS2sCaller) PostToService(endpoint, s2sToken, authToken string, cmd interface{}, data interface{}) error {
 	return nil
 }
+
+func (c *mockRegisterS2sCaller) RespondUpstreamError(err error, w http.ResponseWriter) {}
 
 func TestRegister(t *testing.T) {
 

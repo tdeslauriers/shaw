@@ -56,37 +56,9 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	// validate service token
 	svcToken := r.Header.Get("Service-Authorization")
 	if authorized, err := h.s2sVerifier.IsAuthorized(allowed, svcToken); !authorized {
-		// check if error is a connect.ErrorHttp type
-		// handle if some other error type
-		errMsg, ok := err.(*connect.ErrorHttp)
-		if !ok {
-			h.logger.Error("login handler failed to validate service token", "err", err.Error())
-			e := connect.ErrorHttp{
-				StatusCode: http.StatusInternalServerError,
-				Message:    jwt.S2sUnauthorizedErrMsg,
-			}
-			e.SendJsonErr(w)
-			return
-		}
-
-		// handle unauthorized connect.ErrorHttp type
-		if strings.Contains(err.Error(), "unauthorized") {
-			h.logger.Error("login handler failed to validate service token", "err", errMsg.Message)
-			e := connect.ErrorHttp{
-				StatusCode: http.StatusUnauthorized,
-				Message:    jwt.S2sUnauthorizedErrMsg,
-			}
-			e.SendJsonErr(w)
-			return
-		} else {
-			h.logger.Error("login handler failed to validate service token", "err", errMsg.Message)
-			e := connect.ErrorHttp{
-				StatusCode: http.StatusInternalServerError,
-				Message:    jwt.S2sUnauthorizedErrMsg,
-			}
-			e.SendJsonErr(w)
-			return
-		}
+		h.logger.Error("login handler failed to authorize service token", "err", err.Error())
+		connect.RespondAuthFailure(connect.S2s, err, w)
+		return
 	}
 
 	// decode request body: user login cmd data
@@ -119,7 +91,7 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer wg.Done()
 		if err := h.authService.ValidateCredentials(cmd.Username, cmd.Password); err != nil {
-			h.logger.Error(fmt.Sprintf("failed to validate user credentials to for user %s", cmd.Username), "err", err.Error())
+			h.logger.Error(fmt.Sprintf("failed to validate user credentials for user %s", cmd.Username), "err", err.Error())
 			errChan <- err
 		}
 	}()
@@ -129,7 +101,7 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer wg.Done()
 		if valid, err := h.oauthFlowService.IsValidRedirect(cmd.ClientId, cmd.Redirect); !valid {
-			h.logger.Error(fmt.Sprintf("failed to validate redirect url (%s) association with client id (%s)", cmd.Redirect, cmd.ClientId), "err", err.Error())
+			h.logger.Error(fmt.Sprintf("failed to validate redirect url's (%s) association with client (%s)", cmd.Redirect, cmd.ClientId), "err", err.Error())
 			errChan <- err
 		}
 	}()
@@ -139,7 +111,7 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer wg.Done()
 		if valid, err := h.oauthFlowService.IsValidClient(cmd.ClientId, cmd.Username); !valid {
-			h.logger.Error(fmt.Sprintf("failed to validate user (%s) association with client (%s)", cmd.Username, cmd.ClientId), "err", err.Error())
+			h.logger.Error(fmt.Sprintf("failed to validate user's (%s) association with client Id (%s)", cmd.Username, cmd.ClientId), "err", err.Error())
 			errChan <- err
 		}
 	}()

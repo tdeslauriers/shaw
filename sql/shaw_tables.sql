@@ -91,7 +91,7 @@ CREATE UNIQUE INDEX idx_client_clientid ON client(client_id);
 -- redirect table
 CREATE TABLE redirect (
     uuid CHAR(36) NOT NULL PRIMARY KEY,
-    redirect_url CHAR(36) NOT NULL,
+    redirect_url VARCHAR(2048) NOT NULL,
     enabled BOOLEAN NOT NULL,
     client_uuid CHAR(36),
     CONSTRAINT fk_redirect_client_uuid FOREIGN KEY (client_uuid) REFERENCES client (uuid)

@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
-	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
@@ -52,37 +51,8 @@ func (h *registrationHandler) HandleRegistration(w http.ResponseWriter, r *http.
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
 	if authorized, err := h.verifier.IsAuthorized(allowed, svcToken); !authorized {
-		// check if error is a connect.ErrorHttp type
-		// handle if some other error type
-		errMsg, ok := err.(*connect.ErrorHttp)
-		if !ok {
-			h.logger.Error("registration handler failed to validate service token", "err", err.Error())
-			e := connect.ErrorHttp{
-				StatusCode: http.StatusInternalServerError,
-				Message:    jwt.S2sUnauthorizedErrMsg,
-			}
-			e.SendJsonErr(w)
-			return
-		}
-
-		// handle unauthorized connect.ErrorHttp type
-		if strings.Contains(err.Error(), "unauthorized") {
-			h.logger.Error("registration handler failed to validate service token", "err", errMsg.Message)
-			e := connect.ErrorHttp{
-				StatusCode: http.StatusUnauthorized,
-				Message:    jwt.S2sUnauthorizedErrMsg,
-			}
-			e.SendJsonErr(w)
-			return
-		} else {
-			h.logger.Error("registration handler failed to validate service token", "err", errMsg.Message)
-			e := connect.ErrorHttp{
-				StatusCode: http.StatusInternalServerError,
-				Message:    jwt.S2sUnauthorizedErrMsg,
-			}
-			e.SendJsonErr(w)
-			return
-		}
+		h.logger.Error("registration handler failed to authorize service token", "err", err.Error())
+		connect.RespondAuthFailure(connect.S2s, err, w)
 	}
 
 	// decode request body: user registration cmd data

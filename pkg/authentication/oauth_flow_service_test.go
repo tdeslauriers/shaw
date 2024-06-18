@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -185,6 +186,8 @@ func (s2s *mockS2sCaller) GetServiceData(endpoint, s2sToken, AccessToken string,
 func (s2s *mockS2sCaller) PostToService(endpoint, s2sToken, AccessToken string, cmd interface{}, data interface{}) error {
 	return nil
 }
+
+func (c *mockS2sCaller) RespondUpstreamError(err error, w http.ResponseWriter) {}
 
 func TestIsValidRedirect(t *testing.T) {
 	testCases := []struct {
