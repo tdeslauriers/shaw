@@ -201,14 +201,24 @@ func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+
+		// lookup client uuid for xref
+		var client session.IdentityClient
+		query := "SELECT uuid, client_id, client_name, description, created_at, enabled, client_expired, client_locked FROM client WHERE client_id = ?"
+		if err := r.db.SelectRecord(query, &client, cmd.ClientId); err != nil {
+			r.logger.Error(fmt.Sprintf("failed to lookup client uuid for client id %s", cmd.ClientId), "err", err.Error())
+			xrefChan <- err
+			return
+		}
+
 		xref := session.UserAccountClientXref{
 			Id:        0,           // auto increment
 			AccountId: id.String(), // user id from above
-			ClientId:  cmd.ClientId,
+			ClientId:  client.Uuid, // Note: client.Uuid is the identity client record's uuid, not the client_id
 			CreatedAt: createdAt.Format("2006-01-02 15:04:05"),
 		}
 
-		query := "INSERT INTO account_client (id, account_uuid, client_uuid, created_at) VALUES (?, ?, ?, ?)"
+		query = "INSERT INTO account_client (id, account_uuid, client_uuid, created_at) VALUES (?, ?, ?, ?)"
 		if err := r.db.InsertRecord(query, xref); err != nil {
 			r.logger.Error(fmt.Sprintf("failed to associate user %s with client %s", cmd.Username, ""), "err", err.Error())
 			xrefChan <- err

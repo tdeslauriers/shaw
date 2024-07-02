@@ -7,7 +7,7 @@ CREATE TABLE account (
     firstname VARCHAR(128) NOT NULL,
     lastname VARCHAR(128) NOT NULL,
     birth_date VARCHAR(128),
-    created_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     enabled BOOLEAN NOT NULL,
     account_expired BOOLEAN NOT NULL,
     account_locked BOOLEAN NOT NULL
@@ -20,7 +20,7 @@ CREATE TABLE account_scope (
     id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     account_uuid CHAR(36) NOT NULL,
     scope_uuid CHAR(36) NOT NULL,
-    created_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_account_scope_xref_id FOREIGN KEY (account_uuid) REFERENCES account (uuid)
 );
 CREATE INDEX idx_account_scope_xref ON account_scope(account_uuid);
@@ -33,7 +33,7 @@ CREATE TABLE refresh (
     service_name VARCHAR(32) NOT NULL,
     refresh_token VARCHAR(128) NOT NULL,
     account_uuid CHAR(36) NOT NULL,
-    created_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     revoked BOOLEAN NOT NULL
 );
 CREATE UNIQUE INDEX idx_refreshindex ON refresh(refresh_index);
@@ -57,7 +57,7 @@ CREATE TABLE authcode (
     client_uuid VARCHAR(128) NOT NULL,
     redirect_url VARCHAR(2048) NOT NULL,
     scopes VARCHAR(1024) NOT NULL,
-    created_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     claimed BOOLEAN NOT NULL,
     revoked BOOLEAN NOT NULL
 );
@@ -80,7 +80,7 @@ CREATE TABLE client (
     client_id CHAR(36) NOT NULL,
     client_name VARCHAR(64) NOT NULL,
     description VARCHAR(255),
-    created_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     enabled BOOLEAN NOT NULL,
     client_expired BOOLEAN NOT NULL,
     client_locked BOOLEAN NOT NULL
@@ -114,10 +114,10 @@ CREATE INDEX idx_client_account_xref ON account_client(client_uuid);
 CREATE TABLE servicetoken (
     uuid CHAR(36) PRIMARY KEY,
     service_name VARCHAR(32) NOT NULL,
-    service_token VARCHAR(2048) NOT NULL,
+    service_token VARCHAR(2048) NOT NULL DEFAULT CURRENT_TIMESTAMP
     service_expires TIMESTAMP NOT NULL,
     refresh_token VARCHAR(128) NOT NULL,
-    refresh_expires TIMESTAMP NOT NULL
+    refresh_expires TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_servicetoken_servicename ON servicetoken(service_name);
 CREATE INDEX idx_servicetoken_refreshexpires ON servicetoken(refresh_expires);
