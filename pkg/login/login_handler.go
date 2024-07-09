@@ -166,7 +166,7 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// return auth code
-	authCodeResponse := session.AuthCodeResponse{
+	authCodeResponse := session.AuthCodeExchange {
 		AuthCode:     authCode,
 		ResponseType: session.ResponseType(cmd.ResponseType),
 		State:        cmd.State,
