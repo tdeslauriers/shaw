@@ -17,13 +17,13 @@ import (
 
 var defaultScopes []string = []string{"r:silhouette:profile:*", "e:silhouette:profile:*", "r:junk:*"}
 
-type RegistrationService interface {
+type Service interface {
 	// Register registers a new user account and creates appropriate xrefs for default scopes and client(s)
 	Register(session.UserRegisterCmd) error
 }
 
-func NewRegistrationService(sql data.SqlRepository, ciph data.Cryptor, indexer data.Indexer, s2s session.S2sTokenProvider, caller connect.S2sCaller) RegistrationService {
-	return &registrationService{
+func NewService(sql data.SqlRepository, ciph data.Cryptor, indexer data.Indexer, s2s session.S2sTokenProvider, caller connect.S2sCaller) Service {
+	return &service{
 		db:        sql,
 		cipher:    ciph,
 		indexer:   indexer,
@@ -34,9 +34,9 @@ func NewRegistrationService(sql data.SqlRepository, ciph data.Cryptor, indexer d
 	}
 }
 
-var _ RegistrationService = (*registrationService)(nil)
+var _ Service = (*service)(nil)
 
-type registrationService struct {
+type service struct {
 	db        data.SqlRepository
 	cipher    data.Cryptor
 	indexer   data.Indexer
@@ -57,7 +57,7 @@ const (
 )
 
 // Register implements the RegistrationService interface
-func (r *registrationService) Register(cmd session.UserRegisterCmd) error {
+func (r *service) Register(cmd session.UserRegisterCmd) error {
 
 	// validate registration fields
 	// redundant check because checked in handler, but good practice

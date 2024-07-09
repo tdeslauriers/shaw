@@ -15,12 +15,12 @@ import (
 // service scopes required
 var allowed []string = []string{"w:shaw:*"}
 
-type RegistrationHandler interface {
+type Handler interface {
 	HandleRegistration(w http.ResponseWriter, r *http.Request)
 }
 
-func NewRegistrationHandler(reg RegistrationService, v jwt.JwtVerifier) RegistrationHandler {
-	return &registrationHandler{
+func NewHandler(reg Service, v jwt.JwtVerifier) Handler {
+	return &handler{
 		regService: reg,
 		verifier:   v,
 
@@ -28,16 +28,16 @@ func NewRegistrationHandler(reg RegistrationService, v jwt.JwtVerifier) Registra
 	}
 }
 
-var _ RegistrationHandler = (*registrationHandler)(nil)
+var _ Handler = (*handler)(nil)
 
-type registrationHandler struct {
-	regService RegistrationService
+type handler struct {
+	regService Service
 	verifier   jwt.JwtVerifier
 
 	logger *slog.Logger
 }
 
-func (h *registrationHandler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
+func (h *handler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method != "POST" {
 		e := connect.ErrorHttp{

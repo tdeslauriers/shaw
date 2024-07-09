@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"shaw/internal/util"
 	"shaw/pkg/authentication"
+	"shaw/pkg/login"
+	"shaw/pkg/oauth"
 	"shaw/pkg/register"
 	"time"
 
@@ -150,13 +152,13 @@ func New(config config.Config) (Identity, error) {
 	//TODO: implement user jwt verifier
 
 	// registration service
-	regService := register.NewRegistrationService(repository, cryptor, indexer, s2sProvider, s2sCaller)
+	regService := register.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller)
 
 	// auth service
-	authService := authentication.NewUserAuthService(repository, signer, indexer, cryptor)
+	authService := authentication.NewService(repository, signer, indexer, cryptor)
 
 	// oauth flow service
-	oathFlowService := authentication.NewOauthFlowService(repository, cryptor, indexer, s2sProvider, s2sCaller)
+	oathFlowService := oauth.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller)
 
 	// refresh service
 	// TODO: implement refresh service
@@ -186,9 +188,9 @@ type identity struct {
 	serverTls       *tls.Config
 	repository      data.SqlRepository
 	s2sVerifier     jwt.JwtVerifier
-	registerService register.RegistrationService
+	registerService register.Service
 	authService     session.UserAuthService
-	oathFlowService authentication.OauthFlowService
+	oathFlowService oauth.Service
 	// refresh service
 	// password change service
 
@@ -204,11 +206,9 @@ func (i *identity) CloseDb() error {
 
 func (i *identity) Run() error {
 
-	// register handlers
-	regHander := register.NewRegistrationHandler(i.registerService, i.s2sVerifier)
+	registerHandler := register.NewHandler(i.registerService, i.s2sVerifier)
 
-	// login handler
-	loginHandler := authentication.NewLoginHandler(i.authService, i.oathFlowService, i.s2sVerifier)
+	loginHandler := login.NewHandler(i.authService, i.oathFlowService, i.s2sVerifier)
 
 	// oauth callback handler
 	// TODO: implement oauth callback handler
@@ -221,7 +221,7 @@ func (i *identity) Run() error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", diagnostics.HealthCheckHandler)
-	mux.HandleFunc("/register", regHander.HandleRegistration)
+	mux.HandleFunc("/register", registerHandler.HandleRegistration)
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
 
 	identityServer := &connect.TlsServer{

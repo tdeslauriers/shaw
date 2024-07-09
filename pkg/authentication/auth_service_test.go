@@ -110,7 +110,7 @@ func TestValidateCredentials(t *testing.T) {
 		},
 	}
 
-	authservice := NewUserAuthService(&mockAuthSqlRepository{}, nil, &mockAuthIndexer{}, nil)
+	authservice := NewService(&mockAuthSqlRepository{}, nil, &mockAuthIndexer{}, nil)
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

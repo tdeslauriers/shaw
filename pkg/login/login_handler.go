@@ -1,4 +1,4 @@
-package authentication
+package login
 
 import (
 	"encoding/json"
@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
+	"shaw/pkg/oauth"
 	"strings"
 	"sync"
 
@@ -17,32 +18,32 @@ import (
 // service scopes required
 var allowed []string = []string{"w:shaw:*"}
 
-type LoginHandler interface {
+type Handler interface {
 	HandleLogin(w http.ResponseWriter, r *http.Request)
 }
 
-func NewLoginHandler(user session.UserAuthService, oauthFlow OauthFlowService, verifier jwt.JwtVerifier) LoginHandler {
-	return &loginHandler{
-		authService:      user,
-		oauthFlowService: oauthFlow,
-		s2sVerifier:      verifier,
+func NewHandler(user session.UserAuthService, oauthFlow oauth.Service, verifier jwt.JwtVerifier) Handler {
+	return &handler{
+		auth:        user,
+		oauth:       oauthFlow,
+		s2sVerifier: verifier,
 
 		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentLogin)),
 	}
 }
 
-var _ LoginHandler = (*loginHandler)(nil)
+var _ Handler = (*handler)(nil)
 
-type loginHandler struct {
-	authService      session.UserAuthService
-	oauthFlowService OauthFlowService
-	s2sVerifier      jwt.JwtVerifier
+type handler struct {
+	auth        session.UserAuthService
+	oauth       oauth.Service
+	s2sVerifier jwt.JwtVerifier
 
 	logger *slog.Logger
 }
 
 // HandleLogin handles the login request from users and returns an auth code and redirect/state/nonce
-func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
+func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method != "POST" {
 		e := connect.ErrorHttp{
@@ -90,7 +91,7 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := h.authService.ValidateCredentials(cmd.Username, cmd.Password); err != nil {
+		if err := h.auth.ValidateCredentials(cmd.Username, cmd.Password); err != nil {
 			h.logger.Error(fmt.Sprintf("failed to validate user credentials for user %s", cmd.Username), "err", err.Error())
 			errChan <- err
 		}
@@ -100,7 +101,7 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if valid, err := h.oauthFlowService.IsValidRedirect(cmd.ClientId, cmd.Redirect); !valid {
+		if valid, err := h.oauth.IsValidRedirect(cmd.ClientId, cmd.Redirect); !valid {
 			h.logger.Error(fmt.Sprintf("failed to validate redirect url's (%s) association with client (%s)", cmd.Redirect, cmd.ClientId), "err", err.Error())
 			errChan <- err
 		}
@@ -110,7 +111,7 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if valid, err := h.oauthFlowService.IsValidClient(cmd.ClientId, cmd.Username); !valid {
+		if valid, err := h.oauth.IsValidClient(cmd.ClientId, cmd.Username); !valid {
 			h.logger.Error(fmt.Sprintf("failed to validate user's (%s) association with client Id (%s)", cmd.Username, cmd.ClientId), "err", err.Error())
 			errChan <- err
 		}
@@ -153,7 +154,7 @@ func (h *loginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// generate and persist auth code
-	authCode, err := h.oauthFlowService.GenerateAuthCode(cmd.Username, cmd.ClientId, cmd.Redirect)
+	authCode, err := h.oauth.GenerateAuthCode(cmd.Username, cmd.ClientId, cmd.Redirect)
 	if err != nil {
 		h.logger.Error(fmt.Sprintf("failed to generate auth code for user %s", cmd.Username), "err", err.Error())
 		e := connect.ErrorHttp{

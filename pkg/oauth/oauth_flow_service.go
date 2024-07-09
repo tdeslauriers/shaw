@@ -1,4 +1,4 @@
-package authentication
+package oauth
 
 import (
 	"database/sql"
@@ -17,78 +17,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/session"
 )
 
-type Client struct {
-	ClientId      string          `json:"client_id" db:"uuid"`
-	CLientName    string          `json:"client_name" db:"client_name"`
-	Description   string          `json:"description" db:"description"`
-	CreatedAt     data.CustomTime `json:"created_at" db:"created_at"`
-	Enabled       bool            `json:"enabled" db:"enabled"`
-	ClientExpired bool            `json:"client_expired" db:"client_expired"`
-	ClientLocked  bool            `json:"client_locked" db:"client_locked"`
-}
-
-type Redirect struct {
-	Id          string `json:"uuid" db:"uuid"`
-	RedirectUrl string `json:"redirect_url" db:"redirect_url"`
-	Enabled     bool   `json:"enabled" db:"enabled"`
-	ClientId    string `json:"client_uiid" db:"client_uuid"`
-}
-
-// exists for output of validateRedirect sql query result
-// NOT a db table
-type ClientRedirect struct {
-	Id              string `json:"uuid" db:"uuid"`
-	ClientId        string `json:"client_id" db:"client_id"`
-	ClientEnabled   bool   `json:"client_enabled" db:"client_enabled"`
-	ClientExpired   bool   `json:"client_expired" db:"client_expired"`
-	ClientLocked    bool   `json:"client_locked" db:"client_locked"`
-	RedirectUrl     string `json:"redirect_url" db:"redirect_url"`
-	RedirectEnabled bool   `json:"redirect_enabled" db:"redirect_enabled"`
-}
-
-// AccountClient is a join table between account, account_client (xref), and client
-type AccountClient struct {
-	AccountUuid    string `json:"account_uuid" db:"account_uuid"`
-	UserIndex      string `json:"user_index" db:"user_index"`
-	AccountEnabled bool   `json:"enabled" db:"account_enabled"`
-	AccountExpired bool   `json:"account_expired" db:"account_expired"`
-	AccountLocked  bool   `json:"account_locked" db:"account_locked"`
-	ClientUuid     string `json:"client_uuid" db:"client_uuid"`
-	ClientId       string `json:"client_id" db:"client_id"`
-	ClientEnabled  bool   `json:"client_enabled" db:"client_enabled"`
-	ClientExpired  bool   `json:"client_expired" db:"client_expired"`
-	ClientLocked   bool   `json:"client_locked" db:"client_locked"`
-}
-
-type AuthCode struct {
-	Id            string `json:"uuid" db:"uuid"`
-	AuthCodeIndex string `json:"authcode_index" db:"authcode_index"`
-	Authcode      string `json:"authcode" db:"authcode"`
-	ClientId      string `json:"client_uuid" db:"client_uuid"`
-	RedirectUrl   string `json:"redirect_url" db:"redirect_url"`
-	Scopes        string `json:"scopes" db:"scopes"`
-	CreatedAt     string `json:"created_at" db:"created_at"`
-	Claimed       bool   `json:"claimed" db:"claimed"`
-	Revoked       bool   `json:"revoked" db:"revoked"`
-}
-
-// authcode_account xref table
-type AuthcodeAccount struct {
-	// Id omitted for insert
-	AuthcodeUuid string `json:"authcode_uuid" db:"authcode_uuid"`
-	AccountUuid  string `json:"account_uuid" db:"account_uuid"`
-	CreatedAt    string `json:"created_at" db:"created_at"`
-}
-
-// account_scope xref table
-type AccountScope struct {
-	Id          string          `json:"id" db:"id"`
-	AccountUuid string          `json:"account_uuid" db:"account_uuid"`
-	ScopeUuid   string          `json:"scope_uuid" db:"scope_uuid"`
-	CreatedAt   data.CustomTime `json:"created_at" db:"created_at"`
-}
-
-type OauthFlowService interface {
+type Service interface {
 	// IsVaildRedirect validates the client and redirect url exist, are linked, and are enabled/not expired/not locked
 	IsValidRedirect(clientid, url string) (bool, error)
 
@@ -100,11 +29,11 @@ type OauthFlowService interface {
 	GenerateAuthCode(username, client, redirect string) (string, error)
 }
 
-func NewOauthFlowService(sql data.SqlRepository, ciph data.Cryptor, indexer data.Indexer, s2s session.S2sTokenProvider, caller connect.S2sCaller) OauthFlowService {
-	return &oauthFlowService{
+func NewService(sql data.SqlRepository, c data.Cryptor, i data.Indexer, s2s session.S2sTokenProvider, caller connect.S2sCaller) Service {
+	return &service{
 		db:               sql,
-		cipher:           ciph,
-		indexer:          indexer,
+		cipher:           c,
+		indexer:          i,
 		s2sTokenProvider: s2s,
 		s2sCaller:        caller,
 
@@ -112,9 +41,9 @@ func NewOauthFlowService(sql data.SqlRepository, ciph data.Cryptor, indexer data
 	}
 }
 
-var _ OauthFlowService = (*oauthFlowService)(nil)
+var _ Service = (*service)(nil)
 
-type oauthFlowService struct {
+type service struct {
 	db               data.SqlRepository
 	cipher           data.Cryptor
 	indexer          data.Indexer
@@ -125,7 +54,7 @@ type oauthFlowService struct {
 }
 
 // IsValidRedirect implements the OauthFlowService interface
-func (svc *oauthFlowService) IsValidRedirect(clientId, redirect string) (bool, error) {
+func (s *service) IsValidRedirect(clientId, redirect string) (bool, error) {
 
 	// remove any query params from redirect url
 	parsed, err := url.Parse(redirect)
@@ -154,7 +83,7 @@ func (svc *oauthFlowService) IsValidRedirect(clientId, redirect string) (bool, e
 		WHERE c.client_id = ? AND r.redirect_url = ?`
 
 	var result ClientRedirect
-	if err := svc.db.SelectRecord(qry, &result, clientId, snipped.String()); err != nil {
+	if err := s.db.SelectRecord(qry, &result, clientId, snipped.String()); err != nil {
 		if err == sql.ErrNoRows {
 			return false, errors.New("client/redirect pair not found")
 		} else {
@@ -183,10 +112,10 @@ func (svc *oauthFlowService) IsValidRedirect(clientId, redirect string) (bool, e
 }
 
 // IsValidClient implements the OauthFlowService interface
-func (svc *oauthFlowService) IsValidClient(clientId, username string) (bool, error) {
+func (s *service) IsValidClient(clientId, username string) (bool, error) {
 
 	// re-generate user index
-	index, err := svc.indexer.ObtainBlindIndex(username)
+	index, err := s.indexer.ObtainBlindIndex(username)
 	if err != nil {
 		return false, fmt.Errorf("failed to generate user index: %v", err)
 	}
@@ -211,7 +140,7 @@ func (svc *oauthFlowService) IsValidClient(clientId, username string) (bool, err
 			AND c.client_id = ?`
 
 	var result AccountClient
-	if err := svc.db.SelectRecord(qry, &result, index, clientId); err != nil {
+	if err := s.db.SelectRecord(qry, &result, index, clientId); err != nil {
 		if err == sql.ErrNoRows {
 			return false, fmt.Errorf("user (%s) / client (%s) association not found", username, clientId)
 		} else {
@@ -250,7 +179,7 @@ func (svc *oauthFlowService) IsValidClient(clientId, username string) (bool, err
 }
 
 // GenerateAuthCode implements the OauthFlowService interface
-func (svc *oauthFlowService) GenerateAuthCode(username, clientId, redirect string) (string, error) {
+func (s *service) GenerateAuthCode(username, clientId, redirect string) (string, error) {
 
 	// get user's scopes and all scopes
 	var wg sync.WaitGroup
@@ -258,8 +187,8 @@ func (svc *oauthFlowService) GenerateAuthCode(username, clientId, redirect strin
 	var scopes []session.Scope
 
 	wg.Add(2)
-	go svc.getUserScopes(username, &wg, &userScopes)
-	go svc.getAllScopes(&wg, &scopes)
+	go s.getUserScopes(username, &wg, &userScopes)
+	go s.getAllScopes(&wg, &scopes)
 	wg.Wait()
 
 	// return error either call returns no scopes
@@ -302,27 +231,27 @@ func (svc *oauthFlowService) GenerateAuthCode(username, clientId, redirect strin
 	if err != nil {
 		return "", fmt.Errorf("failed to generate auth code: %v", err)
 	}
-	encryptedAuthcode, err := svc.cipher.EncryptServiceData(authCode.String())
+	encryptedAuthcode, err := s.cipher.EncryptServiceData(authCode.String())
 	if err != nil {
 		return "", fmt.Errorf("failed to encrypt auth code: %v", err)
 	}
 
-	authcodeIndex, err := svc.indexer.ObtainBlindIndex(authCode.String())
+	authcodeIndex, err := s.indexer.ObtainBlindIndex(authCode.String())
 	if err != nil {
 		return "", fmt.Errorf("failed to generate auth code index: %v", err)
 	}
 
-	encryptedClientId, err := svc.cipher.EncryptServiceData(clientId)
+	encryptedClientId, err := s.cipher.EncryptServiceData(clientId)
 	if err != nil {
 		return "", fmt.Errorf("failed to encrypt client id: %v", err)
 	}
 
-	encryptedRedirect, err := svc.cipher.EncryptServiceData(redirect)
+	encryptedRedirect, err := s.cipher.EncryptServiceData(redirect)
 	if err != nil {
 		return "", fmt.Errorf("failed to encrypt redirect url: %v", err)
 	}
 
-	encryptedScopes, err := svc.cipher.EncryptServiceData(builder.String())
+	encryptedScopes, err := s.cipher.EncryptServiceData(builder.String())
 	if err != nil {
 		return "", fmt.Errorf("failed to encrypt generaed scopes string: %v", err)
 	}
@@ -350,15 +279,15 @@ func (svc *oauthFlowService) GenerateAuthCode(username, clientId, redirect strin
 	go func() {
 		// persist auth code to db
 		qry := `INSERT into authcode (uuid, authcode_index, authcode, client_uuid, redirect_url, scopes, created_at, claimed, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-		if err := svc.db.InsertRecord(qry, code); err != nil {
-			svc.logger.Error(fmt.Sprintf("failed to insert authcode record for %s", username), "err", err.Error())
+		if err := s.db.InsertRecord(qry, code); err != nil {
+			s.logger.Error(fmt.Sprintf("failed to insert authcode record for %s", username), "err", err.Error())
 			return
 		}
 
 		// persist account authcode xref to db
 		qry = `INSERT into authcode_account (authcode_uuid, account_uuid, created_at) VALUES (?, ?, ?)`
-		if err := svc.db.InsertRecord(qry, xref); err != nil {
-			svc.logger.Error(fmt.Sprintf("failed to insert authcode_account xref record %s", username), "err", err.Error())
+		if err := s.db.InsertRecord(qry, xref); err != nil {
+			s.logger.Error(fmt.Sprintf("failed to insert authcode_account xref record %s", username), "err", err.Error())
 			return
 		}
 	}()
@@ -367,14 +296,14 @@ func (svc *oauthFlowService) GenerateAuthCode(username, clientId, redirect strin
 }
 
 // get individual user's scopes uuids from account_scope table
-func (svc *oauthFlowService) getUserScopes(username string, wg *sync.WaitGroup, acctScopes *[]AccountScope) {
+func (s *service) getUserScopes(username string, wg *sync.WaitGroup, acctScopes *[]AccountScope) {
 
 	defer wg.Done()
 
 	// user index
-	index, err := svc.indexer.ObtainBlindIndex(username)
+	index, err := s.indexer.ObtainBlindIndex(username)
 	if err != nil {
-		svc.logger.Error(fmt.Sprintf("failed to generate user index for username %s", username), "err", err.Error())
+		s.logger.Error(fmt.Sprintf("failed to generate user index for username %s", username), "err", err.Error())
 	}
 
 	qry := `
@@ -388,12 +317,12 @@ func (svc *oauthFlowService) getUserScopes(username string, wg *sync.WaitGroup, 
 		WHERE a.user_index = ?`
 
 	var scopes []AccountScope
-	if err := svc.db.SelectRecords(qry, &scopes, index); err != nil {
+	if err := s.db.SelectRecords(qry, &scopes, index); err != nil {
 		if err == sql.ErrNoRows {
-			svc.logger.Error(fmt.Sprintf("no scopes found for user %s", username), "err", err.Error())
+			s.logger.Error(fmt.Sprintf("no scopes found for user %s", username), "err", err.Error())
 			return
 		} else {
-			svc.logger.Error(fmt.Sprintf("failed to retrieve scopes for user %s", username), "err", err.Error())
+			s.logger.Error(fmt.Sprintf("failed to retrieve scopes for user %s", username), "err", err.Error())
 			return
 		}
 	}
@@ -402,21 +331,21 @@ func (svc *oauthFlowService) getUserScopes(username string, wg *sync.WaitGroup, 
 }
 
 // get scopes data from s2s scopes endpoint
-func (svc *oauthFlowService) getAllScopes(wg *sync.WaitGroup, scopes *[]session.Scope) {
+func (s *service) getAllScopes(wg *sync.WaitGroup, scopes *[]session.Scope) {
 
 	defer wg.Done()
 
 	// get s2s service endpoint token to retreive scopes
-	s2stoken, err := svc.s2sTokenProvider.GetServiceToken(util.S2sServiceName)
+	s2stoken, err := s.s2sTokenProvider.GetServiceToken(util.S2sServiceName)
 	if err != nil {
-		svc.logger.Error("failed to get s2s token: %v", err)
+		s.logger.Error("failed to get s2s token: %v", "err", err.Error())
 		return
 	}
 
 	// call scopes endpoint
 	var s2sScopes []session.Scope
-	if err := svc.s2sCaller.GetServiceData("/scopes", s2stoken, "", &s2sScopes); err != nil {
-		svc.logger.Error("failed to get scopes data from s2s scopes endpoint", "err", err.Error())
+	if err := s.s2sCaller.GetServiceData("/scopes", s2stoken, "", &s2sScopes); err != nil {
+		s.logger.Error("failed to get scopes data from s2s scopes endpoint", "err", err.Error())
 		return
 	}
 

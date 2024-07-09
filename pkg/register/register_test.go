@@ -200,7 +200,7 @@ func TestRegister(t *testing.T) {
 		},
 	}
 
-	registerService := NewRegistrationService(&mockRegisterSqlRepository{}, &mockRegisterCryptor{}, &mockRegisterIndexer{}, &mockRegisterS2sTokenProvider{}, &mockRegisterS2sCaller{})
+	registerService := NewService(&mockRegisterSqlRepository{}, &mockRegisterCryptor{}, &mockRegisterIndexer{}, &mockRegisterS2sTokenProvider{}, &mockRegisterS2sCaller{})
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := registerService.Register(tc.user)

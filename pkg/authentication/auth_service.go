@@ -12,13 +12,13 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// NewUserAuthService creates an implementation of the user authentication service in the carapace session package.
-func NewUserAuthService(sql data.SqlRepository, mint jwt.JwtSigner, indexer data.Indexer, cryptor data.Cryptor) session.UserAuthService {
+// NewService creates an implementation of the user authentication service in the carapace session package.
+func NewService(db data.SqlRepository, s jwt.JwtSigner, i data.Indexer, c data.Cryptor) session.UserAuthService {
 	return &userAuthService{
-		sql:     sql,
-		mint:    mint,
-		indexer: indexer,
-		cryptor: cryptor,
+		db:      db,
+		mint:    s,
+		indexer: i,
+		cryptor: c,
 
 		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentLogin)),
 	}
@@ -27,7 +27,7 @@ func NewUserAuthService(sql data.SqlRepository, mint jwt.JwtSigner, indexer data
 var _ session.UserAuthService = (*userAuthService)(nil)
 
 type userAuthService struct {
-	sql     data.SqlRepository
+	db      data.SqlRepository
 	mint    jwt.JwtSigner
 	indexer data.Indexer
 	cryptor data.Cryptor
@@ -61,7 +61,7 @@ func (s *userAuthService) ValidateCredentials(username, password string) error {
 			account_locked
 		FROM account
 		WHERE user_index = ?`
-	if err := s.sql.SelectRecord(qry, &user, userIndex); err != nil {
+	if err := s.db.SelectRecord(qry, &user, userIndex); err != nil {
 		s.logger.Error(fmt.Sprintf("failed to retrieve user record for %s", username), "err", err.Error())
 		return errors.New("invalid username or password")
 	}

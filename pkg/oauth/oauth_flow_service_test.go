@@ -1,4 +1,4 @@
-package authentication
+package oauth
 
 import (
 	"database/sql"
@@ -13,6 +13,7 @@ import (
 )
 
 const (
+	RealUsername = "darth.vader@empire.com"
 	RealClient   = "real-client-uuid"
 	RealRedirect = "https://real-redirect-url.com"
 
@@ -239,7 +240,7 @@ func TestIsValidRedirect(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			// create a new clientRegistration with a mockSqlRepository
-			cr := NewOauthFlowService(&mockSqlRepository{}, nil, &mockIndexer{}, nil, nil)
+			cr := NewService(&mockSqlRepository{}, nil, &mockIndexer{}, nil, nil)
 
 			valid, err := cr.IsValidRedirect(tc.clientId, tc.redirect)
 			if valid != tc.valid {
@@ -302,7 +303,7 @@ func TestIsValidClient(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			// create a new clientRegistration with a mockSqlRepository
-			cr := NewOauthFlowService(&mockSqlRepository{}, nil, &mockIndexer{}, nil, nil)
+			cr := NewService(&mockSqlRepository{}, nil, &mockIndexer{}, nil, nil)
 
 			valid, err := cr.IsValidClient(tc.client, tc.username)
 			if valid != tc.valid {
@@ -364,7 +365,7 @@ func TestGenerateAuthCode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			// create a new clientRegistration with a mockSqlRepository
-			cr := NewOauthFlowService(&mockSqlRepository{}, &mockCryptor{}, &mockIndexer{}, &mockS2sTokenProvider{}, &mockS2sCaller{})
+			cr := NewService(&mockSqlRepository{}, &mockCryptor{}, &mockIndexer{}, &mockS2sTokenProvider{}, &mockS2sCaller{})
 
 			code, err := cr.GenerateAuthCode(tc.username, tc.clientId, tc.redirect)
 			if err != nil && !strings.Contains(err.Error(), tc.err.Error()) {
