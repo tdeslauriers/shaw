@@ -151,14 +151,14 @@ func New(config config.Config) (Identity, error) {
 	// user jwt verifier
 	//TODO: implement user jwt verifier
 
-	// registration service
-	regService := register.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller)
-
 	// auth service
 	authService := authentication.NewService(repository, signer, indexer, cryptor)
 
 	// oauth flow service
-	oathFlowService := oauth.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller)
+	oathService := oauth.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller)
+
+	// registration service
+	regService := register.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller)
 
 	// refresh service
 	// TODO: implement refresh service
@@ -171,9 +171,9 @@ func New(config config.Config) (Identity, error) {
 		serverTls:       serverTlsConfig,
 		repository:      repository,
 		s2sVerifier:     s2sVerifier,
-		registerService: regService,
 		authService:     authService,
-		oathFlowService: oathFlowService,
+		oathService:     oathService,
+		registerService: regService,
 		// refresh service
 		// password change service
 
@@ -188,9 +188,9 @@ type identity struct {
 	serverTls       *tls.Config
 	repository      data.SqlRepository
 	s2sVerifier     jwt.JwtVerifier
-	registerService register.Service
 	authService     session.UserAuthService
-	oathFlowService oauth.Service
+	oathService     oauth.Service
+	registerService register.Service
 	// refresh service
 	// password change service
 
@@ -208,7 +208,7 @@ func (i *identity) Run() error {
 
 	registerHandler := register.NewHandler(i.registerService, i.s2sVerifier)
 
-	loginHandler := login.NewHandler(i.authService, i.oathFlowService, i.s2sVerifier)
+	loginHandler := login.NewHandler(i.authService, i.oathService, i.s2sVerifier)
 
 	// oauth callback handler
 	// TODO: implement oauth callback handler

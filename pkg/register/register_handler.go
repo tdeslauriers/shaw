@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
+	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
@@ -80,7 +81,7 @@ func (h *handler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 
 	// register user
 	if err := h.regService.Register(cmd); err != nil {
-		if err.Error() == UsernameUnavailableErrMsg {
+		if strings.Contains(err.Error(), UsernameUnavailableErrMsg) {
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusConflict,
 				Message:    err.Error(),

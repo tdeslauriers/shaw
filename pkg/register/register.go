@@ -1,10 +1,12 @@
 package register
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"shaw/internal/util"
+	"strings"
 	"sync"
 	"time"
 
@@ -57,71 +59,207 @@ const (
 )
 
 // Register implements the RegistrationService interface
-func (r *service) Register(cmd session.UserRegisterCmd) error {
+func (s *service) Register(cmd session.UserRegisterCmd) error {
 
 	// validate registration fields
 	// redundant check because checked in handler, but good practice
 	if err := cmd.ValidateCmd(); err != nil {
-		r.logger.Error("failed to validate user registration fields", "err", err.Error())
+		s.logger.Error("failed to validate user registration fields", "err", err.Error())
 		return errors.New(err.Error())
 	}
 
-	// create blind index
-	index, err := r.indexer.ObtainBlindIndex(cmd.Username)
+	// create blind user index
+	index, err := s.indexer.ObtainBlindIndex(cmd.Username)
 	if err != nil {
-		r.logger.Error("failed to create username index", "err", err.Error())
+		s.logger.Error("failed to create username index", "err", err.Error())
 		return errors.New(BuildUserErrMsg)
 	}
 
-	// check if user already exists
-	query := "SELECT EXISTS(SELECT 1 from account WHERE user_index = ?) AS record_exists"
-	exists, err := r.db.SelectExists(query, index)
-	if err != nil {
-		r.logger.Error("failed db call to check if user exists", "err", err.Error())
-		return fmt.Errorf("failed call to check if user exists")
+	// lookup user name and client id first
+	// if user name exists, or client name does not exist, return error
+	var wgCheck sync.WaitGroup
+	clientChan := make(chan session.IdentityClient, 1)
+	checkErrChan := make(chan error, 2)
+
+	// check if user exists
+	wgCheck.Add(1)
+	go func() {
+		defer wgCheck.Done()
+
+		query := "SELECT EXISTS(SELECT 1 from account WHERE user_index = ?) AS record_exists"
+		exists, err := s.db.SelectExists(query, index)
+		if err != nil {
+			s.logger.Error("failed db call to check if user exists", "err", err.Error())
+			checkErrChan <- fmt.Errorf("failed db lookup to check if user exists")
+		}
+		if exists {
+			s.logger.Error(fmt.Sprintf("username %s already exists", cmd.Username))
+			checkErrChan <- errors.New(UsernameUnavailableErrMsg)
+		}
+	}()
+
+	// check if client exists
+	wgCheck.Add(1)
+	go func() {
+		defer wgCheck.Done()
+
+		var client session.IdentityClient
+		query := "SELECT uuid, client_id, client_name, description, created_at, enabled, client_expired, client_locked FROM client WHERE client_id = ?"
+		if err := s.db.SelectRecord(query, &client, cmd.ClientId); err != nil {
+			if err == sql.ErrNoRows {
+				s.logger.Error(fmt.Sprintf("client id xxxxxx-%s not found", cmd.ClientId[len(cmd.ClientId)-6:]), "err", err.Error())
+				checkErrChan <- errors.New(BuildUserErrMsg)
+			} else {
+
+				s.logger.Error(fmt.Sprintf("failed to lookup client uuid for client id %s", cmd.ClientId[len(cmd.ClientId)-6:]), "err", err.Error())
+				checkErrChan <- errors.New(BuildUserErrMsg)
+			}
+		}
+	}()
+
+	go func() {
+		wgCheck.Wait()
+		close(clientChan)
+		close(checkErrChan)
+	}()
+
+	// return err if either check fails
+	if len(checkErrChan) > 0 {
+		var builder strings.Builder
+		count := 0
+		for e := range checkErrChan {
+			builder.WriteString(e.Error())
+			if len(checkErrChan) > 1 && count < len(checkErrChan)-1 {
+				builder.WriteString("; ")
+			}
+			count++
+		}
+		return errors.New(builder.String())
 	}
-	if exists {
-		r.logger.Error(fmt.Sprintf("username %s already exists", cmd.Username))
-		return errors.New(UsernameUnavailableErrMsg)
-	}
+
+	// use concurrency to create user record:
+	// several crypto operations are called where order is not relevant
+	var wgBuild sync.WaitGroup
+	idChan := make(chan uuid.UUID, 1)
+	usernameChan := make(chan string, 1)
+	passwordChan := make(chan string, 1)
+	firstnameChan := make(chan string, 1)
+	lastnameChan := make(chan string, 1)
+	dobChan := make(chan string, 1)
+
+	buildErrChan := make(chan error, 1)
 
 	// build user record / encrypt user data
-	id, err := uuid.NewRandom()
-	if err != nil {
-		r.logger.Error("failed to create uuid for user registration request", "err", err.Error())
-		return errors.New(BuildUserErrMsg)
-	}
+	wgBuild.Add(1)
+	go func() {
+		defer wgBuild.Done()
 
-	username, err := r.cipher.EncryptServiceData(cmd.Username)
-	if err != nil {
-		r.logger.Error("failed to field level encrypt user registration username/email", "err", err.Error())
-		return errors.New(BuildUserErrMsg)
-	}
+		id, err := uuid.NewRandom()
+		if err != nil {
+			s.logger.Error("failed to create uuid for user registration request", "err", err.Error())
+			buildErrChan <- errors.New(BuildUserErrMsg)
+		}
+		idChan <- id
+	}()
+
+	// encrypt username
+	wgBuild.Add(1)
+	go func() {
+		defer wgBuild.Done()
+
+		username, err := s.cipher.EncryptServiceData(cmd.Username)
+		if err != nil {
+			s.logger.Error("failed to field level encrypt user registration username/email", "err", err.Error())
+			buildErrChan <- errors.New(BuildUserErrMsg)
+		}
+		usernameChan <- username
+	}()
 
 	// bcrypt hash password
-	password, err := bcrypt.GenerateFromPassword([]byte(cmd.Password), 13)
-	if err != nil {
-		r.logger.Error("failed to generate bcrypt password hash", "err", err.Error())
-		return errors.New(BuildUserErrMsg)
+	wgBuild.Add(1)
+	go func() {
+		defer wgBuild.Done()
+
+		password, err := bcrypt.GenerateFromPassword([]byte(cmd.Password), 13)
+		if err != nil {
+			s.logger.Error("failed to generate bcrypt password hash", "err", err.Error())
+			buildErrChan <- errors.New(BuildUserErrMsg)
+		}
+		passwordChan <- string(password)
+	}()
+
+	// encrypt firstname
+	wgBuild.Add(1)
+	go func() {
+		defer wgBuild.Done()
+
+		first, err := s.cipher.EncryptServiceData(cmd.Firstname)
+		if err != nil {
+			s.logger.Error("failed to field level encrypt user registration firstname", "err", err.Error())
+			buildErrChan <- errors.New(BuildUserErrMsg)
+		}
+		firstnameChan <- first
+
+	}()
+
+	// encrypt lastname
+	wgBuild.Add(1)
+	go func() {
+		defer wgBuild.Done()
+
+		last, err := s.cipher.EncryptServiceData(cmd.Lastname)
+		if err != nil {
+			s.logger.Error("failed to field level encrypt user registration lastname", "err", err.Error())
+			buildErrChan <- errors.New(BuildUserErrMsg)
+		}
+		lastnameChan <- last
+	}()
+
+	// encrypt dob
+	wgBuild.Add(1)
+	go func() {
+		defer wgBuild.Done()
+
+		dob, err := s.cipher.EncryptServiceData(cmd.Birthdate)
+		if err != nil {
+			s.logger.Error("failed to field level encrypt user registration dob", "err", err.Error())
+			buildErrChan <- errors.New(BuildUserErrMsg)
+		}
+		dobChan <- dob
+	}()
+
+	go func() {
+		wgBuild.Wait()
+		close(idChan)
+		close(usernameChan)
+		close(passwordChan)
+		close(firstnameChan)
+		close(lastnameChan)
+		close(dobChan)
+		close(buildErrChan)
+	}()
+
+	// if any build errors, aggregate and return
+	if len(buildErrChan) > 0 {
+		var builder strings.Builder
+		count := 0
+		for e := range buildErrChan {
+			builder.WriteString(e.Error())
+			if len(buildErrChan) > 1 && count < len(buildErrChan)-1 {
+				builder.WriteString("; ")
+			}
+			count++
+		}
+		return errors.New(builder.String())
 	}
 
-	first, err := r.cipher.EncryptServiceData(cmd.Firstname)
-	if err != nil {
-		r.logger.Error("failed to field level encrypt user registration firstname", "err", err.Error())
-		return errors.New(BuildUserErrMsg)
-	}
-
-	last, err := r.cipher.EncryptServiceData(cmd.Lastname)
-	if err != nil {
-		r.logger.Error("failed to field level encrypt user registration lastname", "err", err.Error())
-		return errors.New(BuildUserErrMsg)
-	}
-
-	dob, err := r.cipher.EncryptServiceData(cmd.Birthdate)
-	if err != nil {
-		r.logger.Error("failed to field level encrypt user registration dob", "err", err.Error())
-		return errors.New(BuildUserErrMsg)
-	}
+	// get uuid and encrypted values from channels
+	id := <-idChan
+	username := <-usernameChan
+	password := <-passwordChan
+	first := <-firstnameChan
+	last := <-lastnameChan
+	dob := <-dobChan
 
 	createdAt := time.Now()
 
@@ -140,44 +278,44 @@ func (r *service) Register(cmd session.UserRegisterCmd) error {
 	}
 
 	// insert user into database
-	query = "INSERT INTO account (uuid, username, user_index, password, firstname, lastname, birth_date, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	if err := r.db.InsertRecord(query, user); err != nil {
-		r.logger.Error(fmt.Sprintf("failed to insert (%s) user record into account table in db", username), "err", err.Error())
+	query := "INSERT INTO account (uuid, username, user_index, password, firstname, lastname, birth_date, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	if err := s.db.InsertRecord(query, user); err != nil {
+		s.logger.Error(fmt.Sprintf("failed to insert (%s) user record into account table in db", username), "err", err.Error())
 		return errors.New(BuildUserErrMsg)
 	}
-	r.logger.Info(fmt.Sprintf("user %s successfully saved in account table", cmd.Username))
+	s.logger.Info(fmt.Sprintf("user %s successfully saved in account table", cmd.Username))
 
-	// add profile, blog service scopes r, w
+	// wait for user to be saved, otherwise no need to continue.
 	// get s2s service endpoint token to retreive scopes
-	s2stoken, err := r.s2sToken.GetServiceToken(util.S2sServiceName)
+	s2stoken, err := s.s2sToken.GetServiceToken(util.S2sServiceName)
 	if err != nil {
-		r.logger.Error("failed to get s2s token to retreive scopes", "err", err.Error())
+		s.logger.Error("failed to get s2s token to retreive scopes", "err", err.Error())
 		return errors.New(BuildUserErrMsg)
 	}
 
 	// call scopes endpoint
 	var scopes []session.Scope
-	if err := r.s2sCaller.GetServiceData("/scopes", s2stoken, "", &scopes); err != nil {
-		r.logger.Error("failed to get scopes data", "err", err.Error())
+	if err := s.s2sCaller.GetServiceData("/scopes", s2stoken, "", &scopes); err != nil {
+		s.logger.Error("failed to get scopes data", "err", err.Error())
 		return errors.New(BuildUserErrMsg)
 	}
 
 	if len(scopes) < 1 {
-		r.logger.Error("no scopes returned from scopes endpoint")
+		s.logger.Error("no scopes returned from scopes endpoint")
 		return errors.New(BuildUserErrMsg)
 	}
 
-	// filter defaults
+	// filter for default scopes
 	defaults := filterScopes(scopes, defaultScopes)
 
 	// insert xrefs
-	var wg sync.WaitGroup
-	xrefChan := make(chan error)
+	var wgXref sync.WaitGroup
+	xrefErrChan := make(chan error)
 	for _, scope := range defaults {
 
-		wg.Add(1)
+		wgXref.Add(1)
 		go func(scope session.Scope) {
-			defer wg.Done()
+			defer wgXref.Done()
 
 			xref := session.AccountScopeXref{
 				Id:          0,           // auto increment
@@ -187,57 +325,50 @@ func (r *service) Register(cmd session.UserRegisterCmd) error {
 			}
 
 			query := "INSERT INTO account_scope (id, account_uuid, scope_uuid, created_at) VALUES (?, ?, ?, ?)"
-			if err := r.db.InsertRecord(query, xref); err != nil {
-				r.logger.Error(fmt.Sprintf("failed to create xref record for %s - %s", cmd.Username, scope.Name), "err", err.Error())
-				xrefChan <- err
+			if err := s.db.InsertRecord(query, xref); err != nil {
+				s.logger.Error(fmt.Sprintf("failed to create xref record for %s - %s", cmd.Username, scope.Name), "err", err.Error())
+				xrefErrChan <- err
 				return
 			}
-			r.logger.Info(fmt.Sprintf("user %s successfully assigned default scope %s", cmd.Username, scope.Name))
+			s.logger.Info(fmt.Sprintf("user %s successfully assigned default scope %s", cmd.Username, scope.Name))
 
 		}(scope)
 	}
 
 	// Associate user with client
-	wg.Add(1)
+	wgXref.Add(1)
 	go func() {
-		defer wg.Done()
+		defer wgXref.Done()
 
-		// lookup client uuid for xref
-		var client session.IdentityClient
-		query := "SELECT uuid, client_id, client_name, description, created_at, enabled, client_expired, client_locked FROM client WHERE client_id = ?"
-		if err := r.db.SelectRecord(query, &client, cmd.ClientId); err != nil {
-			r.logger.Error(fmt.Sprintf("failed to lookup client uuid for client id %s", cmd.ClientId), "err", err.Error())
-			xrefChan <- err
-			return
-		}
+		c := <-clientChan
 
 		xref := session.UserAccountClientXref{
 			Id:        0,           // auto increment
 			AccountId: id.String(), // user id from above
-			ClientId:  client.Uuid, // Note: client.Uuid is the identity client record's uuid, not the client_id
+			ClientId:  c.Uuid,      // Note: client.Uuid is the identity client record's uuid, not the client_id
 			CreatedAt: createdAt.Format("2006-01-02 15:04:05"),
 		}
 
 		query = "INSERT INTO account_client (id, account_uuid, client_uuid, created_at) VALUES (?, ?, ?, ?)"
-		if err := r.db.InsertRecord(query, xref); err != nil {
-			r.logger.Error(fmt.Sprintf("failed to associate user %s with client %s", cmd.Username, ""), "err", err.Error())
-			xrefChan <- err
+		if err := s.db.InsertRecord(query, xref); err != nil {
+			s.logger.Error(fmt.Sprintf("failed to associate user %s with client %s", cmd.Username, ""), "err", err.Error())
+			xrefErrChan <- err
 			return
 		}
-		r.logger.Info(fmt.Sprintf("user %s successfully associated with client %s", cmd.Username, ""))
+		s.logger.Info(fmt.Sprintf("user %s successfully associated with client %s", cmd.Username, ""))
 	}()
 
 	go func() {
-		wg.Wait()
-		close(xrefChan)
+		wgXref.Wait()
+		close(xrefErrChan)
 	}()
 
 	// return err of xref associations failed
-	if len(xrefChan) > 0 {
+	if len(xrefErrChan) > 0 {
 		return errors.New(BuildUserErrMsg)
 	}
 
-	r.logger.Info(fmt.Sprintf("successfully assigned and saved all default scopes to user %s", cmd.Username))
+	s.logger.Info(fmt.Sprintf("successfully assigned and saved all default scopes to user %s", cmd.Username))
 
 	return nil
 }
