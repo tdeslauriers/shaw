@@ -137,8 +137,7 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 		return errors.New(builder.String())
 	}
 
-	// use concurrency to create user record:
-	// several crypto operations are called where order is not relevant
+	// handle crypto/encryption operations on user data concurrently
 	var wgBuild sync.WaitGroup
 	idChan := make(chan uuid.UUID, 1)
 	usernameChan := make(chan string, 1)
@@ -149,7 +148,7 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 
 	buildErrChan := make(chan error, 1)
 
-	// build user record / encrypt user data
+	// build user record / encrypt user data for persistance
 	wgBuild.Add(1)
 	go func() {
 		defer wgBuild.Done()
