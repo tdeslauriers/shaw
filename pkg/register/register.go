@@ -326,12 +326,11 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 
 			query := "INSERT INTO account_scope (id, account_uuid, scope_uuid, created_at) VALUES (?, ?, ?, ?)"
 			if err := s.db.InsertRecord(query, xref); err != nil {
-				s.logger.Error(fmt.Sprintf("failed to create xref record for %s - %s", cmd.Username, scope.Name), "err", err.Error())
-				xrefErrChan <- err
+				xrefErrChan <- fmt.Errorf("failed to create/persist xref record for %s - %s: %v", cmd.Username, scope.Name, err)
 				return
 			}
-			s.logger.Info(fmt.Sprintf("user %s successfully assigned default scope %s", cmd.Username, scope.Name))
 
+			s.logger.Info(fmt.Sprintf("user %s successfully assigned default scope %s", cmd.Username, scope.Name))
 		}(scope)
 	}
 
@@ -351,10 +350,10 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 
 		query = "INSERT INTO account_client (id, account_uuid, client_uuid, created_at) VALUES (?, ?, ?, ?)"
 		if err := s.db.InsertRecord(query, xref); err != nil {
-			s.logger.Error(fmt.Sprintf("failed to associate user %s with client %s", cmd.Username, ""), "err", err.Error())
-			xrefErrChan <- err
+			xrefErrChan <- fmt.Errorf("failed to associate user %s with client %s: %v", cmd.Username, c.ClientName, err)
 			return
 		}
+
 		s.logger.Info(fmt.Sprintf("user %s successfully associated with client %s", cmd.Username, ""))
 	}()
 
@@ -363,12 +362,16 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 		close(xrefErrChan)
 	}()
 
-	// return err of xref associations failed
+	// return err if xref associations failed
 	if len(xrefErrChan) > 0 {
+		for err := range xrefErrChan {
+			s.logger.Error(err.Error())
+		}
 		return errors.New(BuildUserErrMsg)
 	}
 
-	s.logger.Info(fmt.Sprintf("successfully assigned and saved all default scopes to user %s", cmd.Username))
+	s.logger.Info(fmt.Sprintf("successfully assigned and saved all default scopes and clients to user %s", cmd.Username))
+	s.logger.Info(fmt.Sprintf("user %s successfully registered", cmd.Username))
 
 	return nil
 }
