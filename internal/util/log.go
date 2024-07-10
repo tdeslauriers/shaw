@@ -5,9 +5,10 @@ const (
 
 	ComponentMain      = "main"
 	ComponentIdentity  = "identity"
-	ComponentRegister  = "register"
+	ComponentRegister  = "user registration"
 	ComponentLogin     = "login"
-	ComponentOauthFlow = "oauth_flow"
+	ComponentOauthFlow = "oauth flow"
+	ComponentCallback  = "callback"
 	ComponentRefresh   = "refresh"
 	ComponentScopes    = "scopes"
 )

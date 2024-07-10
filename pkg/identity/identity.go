@@ -21,7 +21,8 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/diagnostics"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
-	"github.com/tdeslauriers/carapace/pkg/session"
+	"github.com/tdeslauriers/carapace/pkg/session/provider"
+	"github.com/tdeslauriers/carapace/pkg/session/types"
 )
 
 type Identity interface {
@@ -128,12 +129,12 @@ func New(config config.Config) (Identity, error) {
 	s2sCaller := connect.NewS2sCaller(config.ServiceAuth.Url, util.S2sServiceName, client, retry)
 
 	// s2s token provider
-	s2sCreds := session.S2sCredentials{
+	s2sCreds := provider.S2sCredentials{
 		ClientId:     config.ServiceAuth.ClientId,
 		ClientSecret: config.ServiceAuth.ClientSecret,
 	}
 
-	s2sProvider := session.NewS2sTokenProvider(s2sCaller, s2sCreds, repository, cryptor)
+	s2sProvider := provider.NewS2sTokenProvider(s2sCaller, s2sCreds, repository, cryptor)
 
 	// user jwt signer
 	privPem, err := base64.StdEncoding.DecodeString(config.Jwt.UserSigningKey)
@@ -188,7 +189,7 @@ type identity struct {
 	serverTls       *tls.Config
 	repository      data.SqlRepository
 	s2sVerifier     jwt.JwtVerifier
-	authService     session.UserAuthService
+	authService     types.UserAuthService
 	oathService     oauth.Service
 	registerService register.Service
 	// refresh service

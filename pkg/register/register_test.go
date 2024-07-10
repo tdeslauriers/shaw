@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/tdeslauriers/carapace/pkg/session"
+	"github.com/tdeslauriers/carapace/pkg/session/types"
 	"github.com/tdeslauriers/carapace/pkg/validate"
 )
 
@@ -81,7 +81,7 @@ type mockRegisterS2sCaller struct{}
 
 func (c *mockRegisterS2sCaller) GetServiceData(endpoint, s2sToken, authToken string, data interface{}) error {
 
-	*data.(*[]session.Scope) = []session.Scope{
+	*data.(*[]types.Scope) = []types.Scope{
 		{
 			Uuid:        "1234",
 			ServiceName: "silhouette",
@@ -123,12 +123,12 @@ func TestRegister(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		user     session.UserRegisterCmd
+		user     types.UserRegisterCmd
 		expected error
 	}{
 		{
 			name: "valid registration",
-			user: session.UserRegisterCmd{
+			user: types.UserRegisterCmd{
 				Username:  RegistrationUsername,
 				Password:  RegistrationPassword,
 				Confirm:   RegistrationPassword,
@@ -140,7 +140,7 @@ func TestRegister(t *testing.T) {
 		},
 		{
 			name: "empty username",
-			user: session.UserRegisterCmd{
+			user: types.UserRegisterCmd{
 				Username:  "",
 				Password:  RegistrationPassword,
 				Confirm:   RegistrationPassword,
@@ -152,7 +152,7 @@ func TestRegister(t *testing.T) {
 		},
 		{
 			name: "invalid username",
-			user: session.UserRegisterCmd{
+			user: types.UserRegisterCmd{
 				Username:  "invalid-username",
 				Password:  RegistrationPassword,
 				Confirm:   RegistrationPassword,
@@ -164,7 +164,7 @@ func TestRegister(t *testing.T) {
 		},
 		{
 			name: "empty password",
-			user: session.UserRegisterCmd{
+			user: types.UserRegisterCmd{
 				Username:  RegistrationUsername,
 				Password:  "",
 				Confirm:   "",
@@ -176,7 +176,7 @@ func TestRegister(t *testing.T) {
 		},
 		{
 			name: "invalid password",
-			user: session.UserRegisterCmd{
+			user: types.UserRegisterCmd{
 				Username:  RegistrationUsername,
 				Password:  "invalid-password",
 				Confirm:   "invalid-password",
@@ -188,7 +188,7 @@ func TestRegister(t *testing.T) {
 		},
 		{
 			name: "username already exists",
-			user: session.UserRegisterCmd{
+			user: types.UserRegisterCmd{
 				Username:  UsernameExists,
 				Password:  RegistrationPassword,
 				Confirm:   RegistrationPassword,

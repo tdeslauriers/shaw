@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tdeslauriers/carapace/pkg/session"
+	"github.com/tdeslauriers/carapace/pkg/session/types"
 	"github.com/tdeslauriers/carapace/pkg/validate"
 )
 
@@ -135,8 +135,8 @@ type mockS2sCaller struct{}
 func (s2s *mockS2sCaller) GetServiceData(endpoint, s2sToken, AccessToken string, data interface{}) error {
 
 	switch d := data.(type) {
-	case *[]session.Scope:
-		*data.(*[]session.Scope) = []session.Scope{
+	case *[]types.Scope:
+		*data.(*[]types.Scope) = []types.Scope{
 			{
 				Uuid:        ScopeOneId,
 				ServiceName: "service-one",

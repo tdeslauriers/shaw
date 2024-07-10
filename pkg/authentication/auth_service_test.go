@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/tdeslauriers/carapace/pkg/session"
+	"github.com/tdeslauriers/carapace/pkg/session/types"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -45,7 +45,7 @@ func (dao *mockAuthSqlRepository) SelectRecord(query string, record interface{},
 
 		hash, _ := bcrypt.GenerateFromPassword([]byte(RealPassword), BcryptCost)
 
-		*record.(*session.UserAccountData) = session.UserAccountData{
+		*record.(*types.UserAccount) = types.UserAccount{
 			Uuid:           "1234",
 			Username:       RealUsername,
 			UserIndex:      UserIndex,

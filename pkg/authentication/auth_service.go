@@ -8,12 +8,13 @@ import (
 
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
-	"github.com/tdeslauriers/carapace/pkg/session"
+	"github.com/tdeslauriers/carapace/pkg/session/types"
+
 	"golang.org/x/crypto/bcrypt"
 )
 
 // NewService creates an implementation of the user authentication service in the carapace session package.
-func NewService(db data.SqlRepository, s jwt.JwtSigner, i data.Indexer, c data.Cryptor) session.UserAuthService {
+func NewService(db data.SqlRepository, s jwt.JwtSigner, i data.Indexer, c data.Cryptor) types.UserAuthService {
 	return &userAuthService{
 		db:      db,
 		mint:    s,
@@ -24,7 +25,7 @@ func NewService(db data.SqlRepository, s jwt.JwtSigner, i data.Indexer, c data.C
 	}
 }
 
-var _ session.UserAuthService = (*userAuthService)(nil)
+var _ types.UserAuthService = (*userAuthService)(nil)
 
 type userAuthService struct {
 	db      data.SqlRepository
@@ -45,7 +46,7 @@ func (s *userAuthService) ValidateCredentials(username, password string) error {
 		return err
 	}
 
-	var user session.UserAccountData
+	var user types.UserAccount
 	qry := `
 		SELECT 
 			uuid,
@@ -93,7 +94,7 @@ func (s *userAuthService) ValidateCredentials(username, password string) error {
 }
 
 // GetUserScopes gets the user scopes for user authentication service so that a token can be minted
-func (s *userAuthService) GetUserScopes(uuid, service string) ([]session.Scope, error) {
+func (s *userAuthService) GetUserScopes(uuid, service string) ([]types.Scope, error) {
 
 	// TDOO: implement get user scopes
 	return nil, nil
@@ -108,7 +109,7 @@ func (s *userAuthService) MintAuthzToken(subject, service string) (*jwt.JwtToken
 }
 
 // GetRefreshToken retreives a refresh token by recreating the blind index, selecting, and then decrypting the record.
-func (s *userAuthService) GetRefreshToken(refreshToken string) (*session.UserRefresh, error) {
+func (s *userAuthService) GetRefreshToken(refreshToken string) (*types.UserRefresh, error) {
 
 	// TDOO: implement get refresh token
 	return nil, nil
@@ -116,7 +117,7 @@ func (s *userAuthService) GetRefreshToken(refreshToken string) (*session.UserRef
 
 // PersistRefresh persists the refresh token for user authentication service.
 // It encrypts the refresh token and creates the blind index before persisting it.
-func (s *userAuthService) PersistRefresh(r session.UserRefresh) error {
+func (s *userAuthService) PersistRefresh(r types.UserRefresh) error {
 
 	// TDOO: implement persist refresh
 	return nil

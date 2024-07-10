@@ -13,7 +13,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
-	"github.com/tdeslauriers/carapace/pkg/session"
+
+	"github.com/tdeslauriers/carapace/pkg/session/provider"
+	"github.com/tdeslauriers/carapace/pkg/session/types"
+
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -21,15 +24,15 @@ var defaultScopes []string = []string{"r:silhouette:profile:*", "e:silhouette:pr
 
 type Service interface {
 	// Register registers a new user account and creates appropriate xrefs for default scopes and client(s)
-	Register(session.UserRegisterCmd) error
+	Register(types.UserRegisterCmd) error
 }
 
-func NewService(sql data.SqlRepository, ciph data.Cryptor, indexer data.Indexer, s2s session.S2sTokenProvider, caller connect.S2sCaller) Service {
+func NewService(db data.SqlRepository, c data.Cryptor, i data.Indexer, p provider.S2sTokenProvider, caller connect.S2sCaller) Service {
 	return &service{
-		db:        sql,
-		cipher:    ciph,
-		indexer:   indexer,
-		s2sToken:  s2s,
+		db:        db,
+		cipher:    c,
+		indexer:   i,
+		s2sToken:  p,
 		s2sCaller: caller,
 
 		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentRegister)),
@@ -42,7 +45,7 @@ type service struct {
 	db        data.SqlRepository
 	cipher    data.Cryptor
 	indexer   data.Indexer
-	s2sToken  session.S2sTokenProvider
+	s2sToken  provider.S2sTokenProvider
 	s2sCaller connect.S2sCaller
 
 	logger *slog.Logger
@@ -56,10 +59,14 @@ const (
 	// UsernameUnavailableErrMsg is a error message returned when a user attempts to register with a username that already exists in the database.
 	// Intent is for consuming handler to check for this message and return a 409 status code.
 	UsernameUnavailableErrMsg = "username unavailable"
+
+	// FieldLevelEncryptErrMsg is a error message returned when a field level encryption operation fails.
+	// Intent is for consuming handler to check for this message and return a 500 status code.
+	FieldLevelEncryptErrMsg = "failed to field level encrypt "
 )
 
 // Register implements the RegistrationService interface
-func (s *service) Register(cmd session.UserRegisterCmd) error {
+func (s *service) Register(cmd types.UserRegisterCmd) error {
 
 	// validate registration fields
 	// redundant check because checked in handler, but good practice
@@ -78,7 +85,7 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 	// lookup user name and client id first
 	// if user name exists, or client name does not exist, return error
 	var wgCheck sync.WaitGroup
-	clientChan := make(chan session.IdentityClient, 1)
+	clientChan := make(chan types.IdentityClient, 1)
 	checkErrChan := make(chan error, 2)
 
 	// check if user exists
@@ -103,15 +110,14 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 	go func() {
 		defer wgCheck.Done()
 
-		var client session.IdentityClient
+		var client types.IdentityClient
 		query := "SELECT uuid, client_id, client_name, description, created_at, enabled, client_expired, client_locked FROM client WHERE client_id = ?"
 		if err := s.db.SelectRecord(query, &client, cmd.ClientId); err != nil {
 			if err == sql.ErrNoRows {
 				s.logger.Error(fmt.Sprintf("client id xxxxxx-%s not found", cmd.ClientId[len(cmd.ClientId)-6:]), "err", err.Error())
 				checkErrChan <- errors.New(BuildUserErrMsg)
 			} else {
-
-				s.logger.Error(fmt.Sprintf("failed to lookup client uuid for client id %s", cmd.ClientId[len(cmd.ClientId)-6:]), "err", err.Error())
+				s.logger.Error(fmt.Sprintf("failed to lookup client record for client id %s", cmd.ClientId[len(cmd.ClientId)-6:]), "err", err.Error())
 				checkErrChan <- errors.New(BuildUserErrMsg)
 			}
 		}
@@ -155,7 +161,7 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 
 		id, err := uuid.NewRandom()
 		if err != nil {
-			s.logger.Error("failed to create uuid for user registration request", "err", err.Error())
+			s.logger.Error(fmt.Sprintf("failed to create uuid for username/email %s", cmd.Username), "err", err.Error())
 			buildErrChan <- errors.New(BuildUserErrMsg)
 		}
 		idChan <- id
@@ -168,8 +174,9 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 
 		username, err := s.cipher.EncryptServiceData(cmd.Username)
 		if err != nil {
-			s.logger.Error("failed to field level encrypt user registration username/email", "err", err.Error())
-			buildErrChan <- errors.New(BuildUserErrMsg)
+			msg := fmt.Sprintf("%s username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
+			s.logger.Error(msg, "err", err.Error())
+			buildErrChan <- errors.New(msg)
 		}
 		usernameChan <- username
 	}()
@@ -181,8 +188,9 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 
 		password, err := bcrypt.GenerateFromPassword([]byte(cmd.Password), 13)
 		if err != nil {
-			s.logger.Error("failed to generate bcrypt password hash", "err", err.Error())
-			buildErrChan <- errors.New(BuildUserErrMsg)
+			msg := fmt.Sprintf("failed to generate bcrypt password hash for username/email (%s)", cmd.Username)
+			s.logger.Error(msg, "err", err.Error())
+			buildErrChan <- errors.New(msg)
 		}
 		passwordChan <- string(password)
 	}()
@@ -194,8 +202,9 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 
 		first, err := s.cipher.EncryptServiceData(cmd.Firstname)
 		if err != nil {
-			s.logger.Error("failed to field level encrypt user registration firstname", "err", err.Error())
-			buildErrChan <- errors.New(BuildUserErrMsg)
+			msg := fmt.Sprintf("%s first name for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
+			s.logger.Error(msg, "err", err.Error())
+			buildErrChan <- errors.New(msg)
 		}
 		firstnameChan <- first
 
@@ -208,8 +217,9 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 
 		last, err := s.cipher.EncryptServiceData(cmd.Lastname)
 		if err != nil {
-			s.logger.Error("failed to field level encrypt user registration lastname", "err", err.Error())
-			buildErrChan <- errors.New(BuildUserErrMsg)
+			msg := fmt.Sprintf("%s lastname for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
+			s.logger.Error(msg, "err", err.Error())
+			buildErrChan <- errors.New(msg)
 		}
 		lastnameChan <- last
 	}()
@@ -221,8 +231,9 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 
 		dob, err := s.cipher.EncryptServiceData(cmd.Birthdate)
 		if err != nil {
-			s.logger.Error("failed to field level encrypt user registration dob", "err", err.Error())
-			buildErrChan <- errors.New(BuildUserErrMsg)
+			msg := fmt.Sprintf("%s dob for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
+			s.logger.Error(msg, "err", err.Error())
+			buildErrChan <- errors.New(msg)
 		}
 		dobChan <- dob
 	}()
@@ -262,7 +273,7 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 
 	createdAt := time.Now()
 
-	user := session.UserAccountData{
+	user := types.UserAccount{
 		Uuid:           id.String(),
 		Username:       username,
 		UserIndex:      index,
@@ -293,7 +304,7 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 	}
 
 	// call scopes endpoint
-	var scopes []session.Scope
+	var scopes []types.Scope
 	if err := s.s2sCaller.GetServiceData("/scopes", s2stoken, "", &scopes); err != nil {
 		s.logger.Error("failed to get scopes data", "err", err.Error())
 		return errors.New(BuildUserErrMsg)
@@ -313,10 +324,10 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 	for _, scope := range defaults {
 
 		wgXref.Add(1)
-		go func(scope session.Scope) {
+		go func(scope types.Scope) {
 			defer wgXref.Done()
 
-			xref := session.AccountScopeXref{
+			xref := types.AccountScopeXref{
 				Id:          0,           // auto increment
 				AccountUuid: id.String(), // user id from above
 				ScopeUuid:   scope.Uuid,
@@ -340,7 +351,7 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 
 		c := <-clientChan
 
-		xref := session.UserAccountClientXref{
+		xref := types.UserAccountClientXref{
 			Id:        0,           // auto increment
 			AccountId: id.String(), // user id from above
 			ClientId:  c.Uuid,      // Note: client.Uuid is the identity client record's uuid, not the client_id
@@ -375,14 +386,14 @@ func (s *service) Register(cmd session.UserRegisterCmd) error {
 	return nil
 }
 
-func filterScopes(scopes []session.Scope, defaults []string) []session.Scope {
+func filterScopes(scopes []types.Scope, defaults []string) []types.Scope {
 
 	scopeMap := make(map[string]struct{})
 	for _, def := range defaults {
 		scopeMap[def] = struct{}{}
 	}
 
-	var filtered []session.Scope
+	var filtered []types.Scope
 	for _, s := range scopes {
 		if _, exists := scopeMap[s.Scope]; exists {
 			filtered = append(filtered, s)

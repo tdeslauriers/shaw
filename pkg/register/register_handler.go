@@ -10,7 +10,7 @@ import (
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
-	"github.com/tdeslauriers/carapace/pkg/session"
+	"github.com/tdeslauriers/carapace/pkg/session/types"
 )
 
 // service scopes required
@@ -57,7 +57,7 @@ func (h *handler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// decode request body: user registration cmd data
-	var cmd session.UserRegisterCmd
+	var cmd types.UserRegisterCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		h.logger.Error("failed to decode json registration request body", "err", err.Error())
 		e := connect.ErrorHttp{
@@ -99,7 +99,7 @@ func (h *handler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// return 201
-	registered := session.UserAccountData{
+	registered := types.UserAccount{
 		Username:  cmd.Username,
 		Firstname: cmd.Firstname,
 		Lastname:  cmd.Lastname,

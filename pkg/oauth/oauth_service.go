@@ -14,7 +14,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
-	"github.com/tdeslauriers/carapace/pkg/session"
+	"github.com/tdeslauriers/carapace/pkg/session/provider"
+	"github.com/tdeslauriers/carapace/pkg/session/types"
 )
 
 type Service interface {
@@ -29,12 +30,12 @@ type Service interface {
 	GenerateAuthCode(username, client, redirect string) (string, error)
 }
 
-func NewService(sql data.SqlRepository, c data.Cryptor, i data.Indexer, s2s session.S2sTokenProvider, caller connect.S2sCaller) Service {
+func NewService(db data.SqlRepository, c data.Cryptor, i data.Indexer, p provider.S2sTokenProvider, caller connect.S2sCaller) Service {
 	return &service{
-		db:               sql,
+		db:               db,
 		cipher:           c,
 		indexer:          i,
-		s2sTokenProvider: s2s,
+		s2sTokenProvider: p,
 		s2sCaller:        caller,
 
 		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentOauthFlow)),
@@ -47,7 +48,7 @@ type service struct {
 	db               data.SqlRepository
 	cipher           data.Cryptor
 	indexer          data.Indexer
-	s2sTokenProvider session.S2sTokenProvider
+	s2sTokenProvider provider.S2sTokenProvider
 	s2sCaller        connect.S2sCaller
 
 	logger *slog.Logger
@@ -184,7 +185,7 @@ func (s *service) GenerateAuthCode(username, clientId, redirect string) (string,
 	// get user's scopes and all scopes
 	var wg sync.WaitGroup
 	var userScopes []AccountScope
-	var scopes []session.Scope
+	var scopes []types.Scope
 
 	wg.Add(2)
 	go s.getUserScopes(username, &wg, &userScopes)
@@ -205,7 +206,7 @@ func (s *service) GenerateAuthCode(username, clientId, redirect string) (string,
 	}
 
 	// filter out scopes that user does not have
-	var filtered []session.Scope
+	var filtered []types.Scope
 	for _, scope := range scopes {
 		if _, exists := idSet[scope.Uuid]; exists && scope.Active {
 			filtered = append(filtered, scope)
@@ -331,7 +332,7 @@ func (s *service) getUserScopes(username string, wg *sync.WaitGroup, acctScopes 
 }
 
 // get scopes data from s2s scopes endpoint
-func (s *service) getAllScopes(wg *sync.WaitGroup, scopes *[]session.Scope) {
+func (s *service) getAllScopes(wg *sync.WaitGroup, scopes *[]types.Scope) {
 
 	defer wg.Done()
 
@@ -343,7 +344,7 @@ func (s *service) getAllScopes(wg *sync.WaitGroup, scopes *[]session.Scope) {
 	}
 
 	// call scopes endpoint
-	var s2sScopes []session.Scope
+	var s2sScopes []types.Scope
 	if err := s.s2sCaller.GetServiceData("/scopes", s2stoken, "", &s2sScopes); err != nil {
 		s.logger.Error("failed to get scopes data from s2s scopes endpoint", "err", err.Error())
 		return

@@ -12,7 +12,7 @@ import (
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
-	"github.com/tdeslauriers/carapace/pkg/session"
+	"github.com/tdeslauriers/carapace/pkg/session/types"
 )
 
 // service scopes required
@@ -22,7 +22,7 @@ type Handler interface {
 	HandleLogin(w http.ResponseWriter, r *http.Request)
 }
 
-func NewHandler(user session.UserAuthService, oauthFlow oauth.Service, verifier jwt.JwtVerifier) Handler {
+func NewHandler(user types.UserAuthService, oauthFlow oauth.Service, verifier jwt.JwtVerifier) Handler {
 	return &handler{
 		auth:        user,
 		oauth:       oauthFlow,
@@ -35,7 +35,7 @@ func NewHandler(user session.UserAuthService, oauthFlow oauth.Service, verifier 
 var _ Handler = (*handler)(nil)
 
 type handler struct {
-	auth        session.UserAuthService
+	auth        types.UserAuthService
 	oauth       oauth.Service
 	s2sVerifier jwt.JwtVerifier
 
@@ -63,7 +63,7 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// decode request body: user login cmd data
-	var cmd session.UserLoginCmd
+	var cmd types.UserLoginCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusBadRequest,
@@ -121,7 +121,7 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if cmd.ResponseType != string(session.AuthCode) {
+		if cmd.ResponseType != string(types.AuthCode) {
 			errChan <- fmt.Errorf("invalid response type")
 		}
 	}()
@@ -166,9 +166,9 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// return auth code
-	authCodeResponse := session.AuthCodeExchange {
+	authCodeResponse := types.AuthCodeExchange{
 		AuthCode:     authCode,
-		ResponseType: session.ResponseType(cmd.ResponseType),
+		ResponseType: types.ResponseType(cmd.ResponseType),
 		State:        cmd.State,
 		Nonce:        cmd.Nonce,
 		ClientId:     cmd.ClientId,
