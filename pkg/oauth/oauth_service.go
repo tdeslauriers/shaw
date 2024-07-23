@@ -12,9 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
-	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
 )
 
@@ -27,16 +25,14 @@ type Service interface {
 
 	// GenerateAuthCode generates an auth code for and persists it to the db along with the user's scopes, the client, and the redirect url,
 	// associating it with the user so that it can be used to mint a token on callback from the client
-	GenerateAuthCode(username, client, redirect string) (string, error)
+	GenerateAuthCode(username, client, redirect string, scopes []types.Scope) (string, error)
 }
 
-func NewService(db data.SqlRepository, c data.Cryptor, i data.Indexer, p provider.S2sTokenProvider, caller connect.S2sCaller) Service {
+func NewService(db data.SqlRepository, c data.Cryptor, i data.Indexer) Service {
 	return &service{
-		db:               db,
-		cipher:           c,
-		indexer:          i,
-		s2sTokenProvider: p,
-		s2sCaller:        caller,
+		db:      db,
+		cipher:  c,
+		indexer: i,
 
 		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentOauthFlow)),
 	}
@@ -45,11 +41,9 @@ func NewService(db data.SqlRepository, c data.Cryptor, i data.Indexer, p provide
 var _ Service = (*service)(nil)
 
 type service struct {
-	db               data.SqlRepository
-	cipher           data.Cryptor
-	indexer          data.Indexer
-	s2sTokenProvider provider.S2sTokenProvider
-	s2sCaller        connect.S2sCaller
+	db      data.SqlRepository
+	cipher  data.Cryptor
+	indexer data.Indexer
 
 	logger *slog.Logger
 }
@@ -118,7 +112,7 @@ func (s *service) IsValidClient(clientId, username string) (bool, error) {
 	// re-generate user index
 	index, err := s.indexer.ObtainBlindIndex(username)
 	if err != nil {
-		return false, fmt.Errorf("failed to generate user index: %v", err)
+		return false, fmt.Errorf("failed to generate user index for %s: %v", username, err)
 	}
 
 	// query db for client and user index association
@@ -180,89 +174,168 @@ func (s *service) IsValidClient(clientId, username string) (bool, error) {
 }
 
 // GenerateAuthCode implements the OauthFlowService interface
-func (s *service) GenerateAuthCode(username, clientId, redirect string) (string, error) {
+func (s *service) GenerateAuthCode(username, clientId, redirect string, scopes []types.Scope) (string, error) {
 
-	// get user's scopes and all scopes
-	var wg sync.WaitGroup
-	var userScopes []AccountScope
-	var scopes []types.Scope
-
-	wg.Add(2)
-	go s.getUserScopes(username, &wg, &userScopes)
-	go s.getAllScopes(&wg, &scopes)
-	wg.Wait()
-
-	// return error either call returns no scopes
-	if len(userScopes) < 1 {
-		return "", fmt.Errorf("no scopes found for user (%s)", username)
-	}
-	if len(scopes) < 1 {
-		return "", errors.New("no scopes returned from s2s scopes endpoint")
-	}
-
-	idSet := make(map[string]struct{})
-	for _, scope := range userScopes {
-		idSet[scope.ScopeUuid] = struct{}{}
-	}
-
-	// filter out scopes that user does not have
-	var filtered []types.Scope
-	for _, scope := range scopes {
-		if _, exists := idSet[scope.Uuid]; exists && scope.Active {
-			filtered = append(filtered, scope)
+	// check for empty fields: redundant check, but good practice
+	if username == "" || clientId == "" || redirect == "" || len(scopes) == 0 {
+		switch {
+		case username == "":
+			return "", errors.New("failed to generate auth code: username is empty")
+		case clientId == "":
+			return "", errors.New("failed to generate auth code: client id is empty")
+		case redirect == "":
+			return "", errors.New("failed to generate auth code: redirect url is empty")
+		case len(scopes) == 0:
+			return "", errors.New("failed to generate auth code: scopes are empty")
 		}
 	}
 
-	// build scopes string
-	var builder strings.Builder
-	for i, scope := range filtered {
-		builder.WriteString(scope.Scope)
-		if i < len(filtered)-1 {
-			builder.WriteString(" ")
+	var (
+		wg                sync.WaitGroup
+		userId            string
+		authCodeId        uuid.UUID
+		authCode          uuid.UUID
+		authCodeIndex     string
+		encryptedAuthCode string
+		encryptedClientId string
+		encryptedRedirect string
+		encryptedScopes   string
+	)
+	errChan := make(chan error, 6)
+
+	// get user uuid from account table
+	wg.Add(1)
+	go func(username string, id *string, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		userIndex, err := s.indexer.ObtainBlindIndex(username)
+		if err != nil {
+			errs <- fmt.Errorf("failed to generate user index for %s: %v", username, err)
+			return
 		}
-	}
+
+		qry := `SELECT uuid FROM account WHERE user_index = ?`
+		if err := s.db.SelectRecord(qry, &id, userIndex); err != nil {
+			errs <- fmt.Errorf("failed to retrieve user uuid for %s: %v", username, err)
+		}
+	}(username, &userId, errChan, &wg)
 
 	// build auth code record
-	id, err := uuid.NewRandom()
-	if err != nil {
-		return "", fmt.Errorf("failed to generate auth code id: %v", err)
+	// generate auth code id
+	wg.Add(1)
+	go func(authCodeId *uuid.UUID, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		id, err := uuid.NewRandom()
+		if err != nil {
+			errs <- fmt.Errorf("failed to generate auth code id: %v", err)
+			return
+		}
+		*authCodeId = id
+	}(&authCodeId, errChan, &wg)
+
+	// generate auth code, blind index, and encrypt auth code for persistence
+	wg.Add(1)
+	go func(authCode *uuid.UUID, authCodeIndex, encryptedAuthCode *string, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		code, err := uuid.NewRandom()
+		if err != nil {
+			errs <- fmt.Errorf("failed to generate auth code: %v", err)
+			return
+		}
+		*authCode = code
+
+		index, err := s.indexer.ObtainBlindIndex(code.String())
+		if err != nil {
+			errs <- fmt.Errorf("failed to generate auth code index: %v", err)
+			return
+		}
+		*authCodeIndex = index
+
+		encrypted, err := s.cipher.EncryptServiceData(authCode.String())
+		if err != nil {
+			errs <- fmt.Errorf("failed to encrypt auth code: %v", err)
+			return
+		}
+		*encryptedAuthCode = encrypted
+	}(&authCode, &authCodeIndex, &encryptedAuthCode, errChan, &wg)
+
+	// encrypt client id
+	wg.Add(1)
+	go func(clientId string, encryptedClientId *string, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		encrypted, err := s.cipher.EncryptServiceData(clientId)
+		if err != nil {
+			errs <- fmt.Errorf("failed to encrypt client id: %v", err)
+			return
+		}
+		*encryptedClientId = encrypted
+	}(clientId, &encryptedClientId, errChan, &wg)
+
+	// encrypt redirect url
+	wg.Add(1)
+	go func(redirect string, encryptedRedirect *string, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		encrypted, err := s.cipher.EncryptServiceData(redirect)
+		if err != nil {
+			errs <- fmt.Errorf("failed to encrypt redirect url: %v", err)
+			return
+		}
+		*encryptedRedirect = encrypted
+	}(redirect, &encryptedRedirect, errChan, &wg)
+
+	// encrypt scopes
+	wg.Add(1)
+	go func(scopes []types.Scope, encryptedScopes *string, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		// build scopes string
+		var builder strings.Builder
+		for i, scope := range scopes {
+			builder.WriteString(scope.Scope)
+			if i < len(scopes)-1 {
+				builder.WriteString(" ")
+			}
+		}
+
+		encrypted, err := s.cipher.EncryptServiceData(builder.String())
+		if err != nil {
+			errs <- fmt.Errorf("failed to encrypt generaed scopes string: %v", err)
+			return
+		}
+		*encryptedScopes = encrypted
+	}(scopes, &encryptedScopes, errChan, &wg)
+
+	// wait for all value generation goroutines to finish
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
+
+	// consolidate and return any errors
+	if len(errChan) > 0 {
+		var builder strings.Builder
+		count := 0
+		for e := range errChan {
+			builder.WriteString(e.Error())
+			if count < len(errChan)-1 {
+				builder.WriteString("; ")
+			}
+			count++
+		}
+		return "", fmt.Errorf("failed to generate auth code: %v", builder.String())
 	}
 
-	authCode, err := uuid.NewRandom()
-	if err != nil {
-		return "", fmt.Errorf("failed to generate auth code: %v", err)
-	}
-	encryptedAuthcode, err := s.cipher.EncryptServiceData(authCode.String())
-	if err != nil {
-		return "", fmt.Errorf("failed to encrypt auth code: %v", err)
-	}
-
-	authcodeIndex, err := s.indexer.ObtainBlindIndex(authCode.String())
-	if err != nil {
-		return "", fmt.Errorf("failed to generate auth code index: %v", err)
-	}
-
-	encryptedClientId, err := s.cipher.EncryptServiceData(clientId)
-	if err != nil {
-		return "", fmt.Errorf("failed to encrypt client id: %v", err)
-	}
-
-	encryptedRedirect, err := s.cipher.EncryptServiceData(redirect)
-	if err != nil {
-		return "", fmt.Errorf("failed to encrypt redirect url: %v", err)
-	}
-
-	encryptedScopes, err := s.cipher.EncryptServiceData(builder.String())
-	if err != nil {
-		return "", fmt.Errorf("failed to encrypt generaed scopes string: %v", err)
-	}
-
+	// create auth code and authcode-account xref records for persistance
 	createdAt := time.Now()
 
 	code := AuthCode{
-		Id:            id.String(),
-		AuthCodeIndex: authcodeIndex,
-		Authcode:      encryptedAuthcode,
+		Id:            authCodeId.String(),
+		AuthCodeIndex: authCodeIndex,
+		Authcode:      encryptedAuthCode,
 		ClientId:      encryptedClientId,
 		RedirectUrl:   encryptedRedirect,
 		Scopes:        encryptedScopes,
@@ -273,82 +346,56 @@ func (s *service) GenerateAuthCode(username, clientId, redirect string) (string,
 
 	xref := AuthcodeAccount{
 		AuthcodeUuid: code.Id,
-		AccountUuid:  userScopes[0].AccountUuid,
+		AccountUuid:  userId,
 		CreatedAt:    createdAt.Format("2006-01-02 15:04:05"),
 	}
 
-	go func() {
-		// persist auth code to db
+	var wgPersist sync.WaitGroup
+	var errPersistChan = make(chan error, 2)
+
+	// persist auth code to db
+	wgPersist.Add(1)
+	go func(code AuthCode, errs chan error, wg *sync.WaitGroup) {
+		defer wgPersist.Done()
+
 		qry := `INSERT into authcode (uuid, authcode_index, authcode, client_uuid, redirect_url, scopes, created_at, claimed, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 		if err := s.db.InsertRecord(qry, code); err != nil {
-			s.logger.Error(fmt.Sprintf("failed to insert authcode record for %s", username), "err", err.Error())
+			errPersistChan <- fmt.Errorf("failed to insert authcode record for %s into db: %v", username, err)
 			return
 		}
+	}(code, errPersistChan, &wgPersist)
 
-		// persist account authcode xref to db
-		qry = `INSERT into authcode_account (authcode_uuid, account_uuid, created_at) VALUES (?, ?, ?)`
+	// persist account authcode xref to db
+	wgPersist.Add(1)
+	go func(xref AuthcodeAccount, errs chan error, wg *sync.WaitGroup) {
+		defer wgPersist.Done()
+
+		qry := `INSERT into authcode_account (authcode_uuid, account_uuid, created_at) VALUES (?, ?, ?)`
 		if err := s.db.InsertRecord(qry, xref); err != nil {
-			s.logger.Error(fmt.Sprintf("failed to insert authcode_account xref record %s", username), "err", err.Error())
+			errPersistChan <- fmt.Errorf("failed to insert authcode_account xref record for %s into db: %v", username, err)
 			return
 		}
+	}(xref, errPersistChan, &wgPersist)
+
+	// wait for persistence activities to finish
+	go func() {
+		wgPersist.Wait()
+		close(errPersistChan)
 	}()
 
-	return authCode.String(), nil
-}
-
-// get individual user's scopes uuids from account_scope table
-func (s *service) getUserScopes(username string, wg *sync.WaitGroup, acctScopes *[]AccountScope) {
-
-	defer wg.Done()
-
-	// user index
-	index, err := s.indexer.ObtainBlindIndex(username)
-	if err != nil {
-		s.logger.Error(fmt.Sprintf("failed to generate user index for username %s", username), "err", err.Error())
-	}
-
-	qry := `
-		SELECT
-			asp.id,
-			asp.account_uuid,
-			asp.scope_uuid,
-			asp.created_at
-		FROM account_scope asp
-			LEFT OUTER JOIN account a ON asp.account_uuid = a.uuid
-		WHERE a.user_index = ?`
-
-	var scopes []AccountScope
-	if err := s.db.SelectRecords(qry, &scopes, index); err != nil {
-		if err == sql.ErrNoRows {
-			s.logger.Error(fmt.Sprintf("no scopes found for user %s", username), "err", err.Error())
-			return
-		} else {
-			s.logger.Error(fmt.Sprintf("failed to retrieve scopes for user %s", username), "err", err.Error())
-			return
+	// consolidate and return any errors
+	if len(errPersistChan) > 0 {
+		var builder strings.Builder
+		count := 0
+		for e := range errPersistChan {
+			builder.WriteString(e.Error())
+			if count < len(errPersistChan)-1 {
+				builder.WriteString("; ")
+			}
+			count++
 		}
+		return "", fmt.Errorf("failed to generate auth code: %v", builder.String())
 	}
 
-	*acctScopes = scopes
-}
-
-// get scopes data from s2s scopes endpoint
-func (s *service) getAllScopes(wg *sync.WaitGroup, scopes *[]types.Scope) {
-
-	defer wg.Done()
-
-	// get s2s service endpoint token to retreive scopes
-	s2stoken, err := s.s2sTokenProvider.GetServiceToken(util.S2sServiceName)
-	if err != nil {
-		s.logger.Error("failed to get s2s token: %v", "err", err.Error())
-		return
-	}
-
-	// call scopes endpoint
-	var s2sScopes []types.Scope
-	if err := s.s2sCaller.GetServiceData("/scopes", s2stoken, "", &s2sScopes); err != nil {
-		s.logger.Error("failed to get scopes data from s2s scopes endpoint", "err", err.Error())
-		return
-	}
-
-	*scopes = s2sScopes
+	return authCode.String(), nil
 }

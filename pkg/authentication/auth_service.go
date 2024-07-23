@@ -1,25 +1,31 @@
 package authentication
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"shaw/internal/util"
+	"sync"
 
+	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
+	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
 // NewService creates an implementation of the user authentication service in the carapace session package.
-func NewService(db data.SqlRepository, s jwt.JwtSigner, i data.Indexer, c data.Cryptor) types.UserAuthService {
+func NewService(db data.SqlRepository, s jwt.JwtSigner, i data.Indexer, c data.Cryptor, p provider.S2sTokenProvider, call connect.S2sCaller) types.UserAuthService {
 	return &userAuthService{
-		db:      db,
-		mint:    s,
-		indexer: i,
-		cryptor: c,
+		db:               db,
+		mint:             s,
+		indexer:          i,
+		cryptor:          c,
+		s2sTokenProvider: p,
+		s2sCaller:        call,
 
 		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentLogin)),
 	}
@@ -28,10 +34,12 @@ func NewService(db data.SqlRepository, s jwt.JwtSigner, i data.Indexer, c data.C
 var _ types.UserAuthService = (*userAuthService)(nil)
 
 type userAuthService struct {
-	db      data.SqlRepository
-	mint    jwt.JwtSigner
-	indexer data.Indexer
-	cryptor data.Cryptor
+	db               data.SqlRepository
+	mint             jwt.JwtSigner
+	indexer          data.Indexer
+	cryptor          data.Cryptor
+	s2sTokenProvider provider.S2sTokenProvider
+	s2sCaller        connect.S2sCaller
 
 	logger *slog.Logger
 }
@@ -93,16 +101,108 @@ func (s *userAuthService) ValidateCredentials(username, password string) error {
 	return nil
 }
 
-// GetUserScopes gets the user scopes for user authentication service so that a token can be minted
-func (s *userAuthService) GetUserScopes(uuid, service string) ([]types.Scope, error) {
+// GetUserScopes gets the user scopes for user authentication service so that an authcode record can be created.
+// Note: service is not used in this implementation because a user's scopes are not service specific (yet).
+func (s *userAuthService) GetScopes(username, service string) ([]types.Scope, error) {
 
-	// TDOO: implement get user scopes
-	return nil, nil
+	// get user's allScopes and all allScopes
+	var (
+		wg         sync.WaitGroup
+		userScopes []AccountScope
+		allScopes  []types.Scope
+	)
+
+	wg.Add(2)
+	go s.lookupUserScopes(username, &wg, &userScopes)
+	go s.getAllScopes(&wg, &allScopes)
+	wg.Wait()
+
+	// return error either call returns no scopes
+	if len(userScopes) < 1 {
+		return nil, fmt.Errorf("no scopes found for user (%s)", username)
+	}
+	if len(allScopes) < 1 {
+		return nil, errors.New("no scopes returned from s2s scopes endpoint")
+	}
+
+	idSet := make(map[string]struct{})
+	for _, scope := range userScopes {
+		idSet[scope.ScopeUuid] = struct{}{}
+	}
+
+	// filter out scopes that user does not have
+	var filtered []types.Scope
+	for _, scope := range allScopes {
+		if _, exists := idSet[scope.Uuid]; exists && scope.Active {
+			filtered = append(filtered, scope)
+		}
+	}
+
+	return filtered, nil
+}
+
+// lookupUserScopes gets individual user's scopes uuids from account_scope table.
+// Note: returns uuids only.  Needs additional functionality to get the actual scope records
+// from the scope table in the s2s service.
+func (s *userAuthService) lookupUserScopes(username string, wg *sync.WaitGroup, acctScopes *[]AccountScope) {
+
+	defer wg.Done()
+
+	// user index
+	index, err := s.indexer.ObtainBlindIndex(username)
+	if err != nil {
+		s.logger.Error(fmt.Sprintf("failed to generate user index for username %s", username), "err", err.Error())
+	}
+
+	qry := `
+		SELECT
+			asp.id,
+			asp.account_uuid,
+			asp.scope_uuid,
+			asp.created_at
+		FROM account_scope asp
+			LEFT OUTER JOIN account a ON asp.account_uuid = a.uuid
+		WHERE a.user_index = ?`
+
+	var scopes []AccountScope
+	if err := s.db.SelectRecords(qry, &scopes, index); err != nil {
+		if err == sql.ErrNoRows {
+			s.logger.Error(fmt.Sprintf("no scopes found for user %s", username), "err", err.Error())
+			return
+		} else {
+			s.logger.Error(fmt.Sprintf("failed to retrieve scopes for user %s", username), "err", err.Error())
+			return
+		}
+	}
+
+	*acctScopes = scopes
+}
+
+// getAllScopes gets scopes data objects/records from s2s scopes endpoint
+func (s *userAuthService) getAllScopes(wg *sync.WaitGroup, scopes *[]types.Scope) {
+
+	defer wg.Done()
+
+	// get s2s service endpoint token to retreive scopes
+	s2stoken, err := s.s2sTokenProvider.GetServiceToken(util.S2sServiceName)
+	if err != nil {
+		s.logger.Error("failed to get s2s token: %v", "err", err.Error())
+		return
+	}
+
+	// call scopes endpoint
+	var s2sScopes []types.Scope
+	if err := s.s2sCaller.GetServiceData("/scopes", s2stoken, "", &s2sScopes); err != nil {
+		s.logger.Error("failed to get scopes data from s2s scopes endpoint", "err", err.Error())
+		return
+	}
+
+	*scopes = s2sScopes
 }
 
 // MintAuthToken mints the users access token token for user authentication service.
 // It assumes that the user's credentials have been validated.
-func (s *userAuthService) MintAuthzToken(subject, service string) (*jwt.JwtToken, error) {
+func (s *userAuthService) MintToken(subject, service string) (*jwt.JwtToken, error) {
 
 	// TDOO: implement mint authz token
 	return nil, nil

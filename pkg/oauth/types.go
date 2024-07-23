@@ -68,10 +68,4 @@ type AuthcodeAccount struct {
 	CreatedAt    string `json:"created_at" db:"created_at"`
 }
 
-// AccountScope is a model for account_scope xref table
-type AccountScope struct {
-	Id          string          `json:"id" db:"id"`
-	AccountUuid string          `json:"account_uuid" db:"account_uuid"`
-	ScopeUuid   string          `json:"scope_uuid" db:"scope_uuid"`
-	CreatedAt   data.CustomTime `json:"created_at" db:"created_at"`
-}
+

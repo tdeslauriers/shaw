@@ -65,9 +65,10 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	// decode request body: user login cmd data
 	var cmd types.UserLoginCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+		h.logger.Error("failed to decode login command request body", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusBadRequest,
-			Message:    "failed to decode user login command",
+			Message:    "failed to decode user login command request body",
 		}
 		e.SendJsonErr(w)
 		return
@@ -75,6 +76,7 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// lightweight validation: check for empty fields or too long
 	if err := cmd.ValidateCmd(); err != nil {
+		h.logger.Error("failed to validate user login command request body", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnprocessableEntity,
 			Message:    err.Error(),
@@ -153,8 +155,21 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// get user scopes for auth code generation.
+	// service param in GetScopes is ignored for now because user scopes are not service specific (yet).
+	scopes, err := h.auth.GetScopes(cmd.Username, "")
+	if err != nil {
+		h.logger.Error(fmt.Sprintf("failed to get user scopes for user %s", cmd.Username), "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "failed to get user scopes for auth code generation",
+		}
+		e.SendJsonErr(w)
+		return
+	}
+
 	// generate and persist auth code
-	authCode, err := h.oauth.GenerateAuthCode(cmd.Username, cmd.ClientId, cmd.Redirect)
+	authCode, err := h.oauth.GenerateAuthCode(cmd.Username, cmd.ClientId, cmd.Redirect, scopes)
 	if err != nil {
 		h.logger.Error(fmt.Sprintf("failed to generate auth code for user %s", cmd.Username), "err", err.Error())
 		e := connect.ErrorHttp{

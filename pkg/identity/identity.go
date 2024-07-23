@@ -153,10 +153,10 @@ func New(config config.Config) (Identity, error) {
 	//TODO: implement user jwt verifier
 
 	// auth service
-	authService := authentication.NewService(repository, signer, indexer, cryptor)
+	authService := authentication.NewService(repository, signer, indexer, cryptor, s2sProvider, s2sCaller)
 
 	// oauth flow service
-	oathService := oauth.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller)
+	oathService := oauth.NewService(repository, cryptor, indexer)
 
 	// registration service
 	regService := register.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller)
