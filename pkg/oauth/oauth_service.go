@@ -411,6 +411,11 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 		return nil, fmt.Errorf("%s: %v", ErrValidateAuthCode, err)
 	}
 
+	// authorization code grant type is the only supported grant type within this service
+	if cmd.Grant != types.AuthorizationCode {
+		return nil, fmt.Errorf("%s for auth code xxxxxx-%s: %s", ErrInvalidGrantType, cmd.AuthCode[len(cmd.AuthCode)-6:], cmd.Grant)
+	}
+
 	// recreate auth code index
 	index, err := s.indexer.ObtainBlindIndex(cmd.AuthCode)
 	if err != nil {
@@ -463,17 +468,20 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 		return nil, fmt.Errorf("%s (xxxxxx-%s): %v", ErrAuthcodeRevoked, cmd.AuthCode[len(cmd.AuthCode)-6:], err)
 	}
 
-	// check if user is disabled: redundant, authcode should never have been generated
+	// check if user is disabled
+	// redundant, authcode should never have been generated
 	if !user.Enabled {
 		return nil, fmt.Errorf("%s (%s): %v", ErrUserDisabled, user.Username, err)
 	}
 
 	// check if user account expired
+	// redundant, authcode should never have been generated
 	if user.AccountExpired {
 		return nil, fmt.Errorf("%s (%s): %v", ErrUserAccountExpired, user.Username, err)
 	}
 
 	// check if user account locked
+	// redundant, authcode should never have been generated
 	if user.AccountLocked {
 		return nil, fmt.Errorf("%s (%s): %v", ErrUserAccountLocked, user.Username, err)
 	}

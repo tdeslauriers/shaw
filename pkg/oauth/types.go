@@ -10,6 +10,8 @@ const (
 	// 401
 	ErrIndexNotFound = "auth code does not exist"
 
+	ErrInvalidGrantType = "invalid grant type"
+
 	ErrAuthcodeExpired = "auth code expired"
 	ErrAuthcodeRevoked = "auth code revoked"
 	ErrAuthcodeClaimed = "auth code has been claimed already"
