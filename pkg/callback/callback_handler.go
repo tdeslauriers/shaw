@@ -78,7 +78,8 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		e.SendJsonErr(w)
 	}
 
-	// TODO: validate auth code, grant type, client id, redirect url
+	// exchange auth code for user authentication data, if exists/valid
+	userData, err := h.oauth.RetrieveUserData(cmd)
 
 	// TODO: mint jwt access token and refresh tokens
 

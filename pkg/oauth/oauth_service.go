@@ -26,6 +26,10 @@ type Service interface {
 	// GenerateAuthCode generates an auth code for and persists it to the db along with the user's scopes, the client, and the redirect url,
 	// associating it with the user so that it can be used to mint a token on callback from the client
 	GenerateAuthCode(username, client, redirect string, scopes []types.Scope) (string, error)
+
+	// RetrieveUserData retrieves the user data associated with the auth code, if it exists and is valid.
+	// If any of the data provided in the AccessTokenCmd is invalid, an error is returned.
+	RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, error)
 }
 
 func NewService(db data.SqlRepository, c data.Cryptor, i data.Indexer) Service {
@@ -398,4 +402,83 @@ func (s *service) GenerateAuthCode(username, clientId, redirect string, scopes [
 	}
 
 	return authCode.String(), nil
+}
+
+func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, error) {
+
+	// check for empty fields: redundant check, but good practice
+	if err := cmd.ValidateCmd(); err != nil {
+		return nil, fmt.Errorf("%s: %v", ErrValidateAuthCode, err)
+	}
+
+	// recreate auth code index
+	index, err := s.indexer.ObtainBlindIndex(cmd.AuthCode)
+	if err != nil {
+		return nil, fmt.Errorf("%s for auth code xxxxxx-%s: %v", ErrGenAuthCodeIndex, cmd.AuthCode[len(cmd.AuthCode)-6:], err)
+	}
+
+	// pulling back all data for the auth code/account so any errors
+	// can be directly referenced vs a restrictive query
+	qry := `SELECT 
+				a.username, 
+				a.firstname,
+				a.lastname,
+				a.birthdate,
+				a.enabled,
+				a.account_expired,
+				a.account_locked,
+				ac.client_id,
+				ac.redirect_url,
+				ac.scopes,
+				ac.claimed, 
+				ac.revoked
+			FROM authcode ac 
+				LEFT OUTER JOIN authcode_account aac ON ac.uuid = aac.authcode_uuid
+				LEFT OUTER JOIN account a ON aac.account_uuid = a.uuid
+			WHERE ac.authcode_index = ?`
+
+	var user OauthUserData
+	if err := s.db.SelectRecord(qry, &user, index); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("%s: %v", ErrIndexNotFound, err)
+		} else {
+			return nil, fmt.Errorf("%s (xxxxxx-%s): %v", ErrFailedLookupIndex, cmd.AuthCode[len(cmd.AuthCode)-6:], err)
+		}
+	}
+
+	// perform expiry, enabled, etc., checks before decryption
+	// check authcode expiry
+	now := time.Now().UTC()
+	if user.AuthcodeCreatedAt.Add(5 * time.Minute).Before(now) {
+		return nil, fmt.Errorf("%s (xxxxxx-%s): %v", ErrAuthcodeExpired, cmd.AuthCode[len(cmd.AuthCode)-6:], err)
+	}
+
+	// check if auth code has already been claimed
+	if user.AuthcodeClaimed {
+		return nil, fmt.Errorf("%s (xxxxxx-%s): %v", ErrAuthcodeClaimed, cmd.AuthCode[len(cmd.AuthCode)-6:], err)
+	}
+
+	// check if authcode revoked
+	if user.AuthcodeRevoked {
+		return nil, fmt.Errorf("%s (xxxxxx-%s): %v", ErrAuthcodeRevoked, cmd.AuthCode[len(cmd.AuthCode)-6:], err)
+	}
+
+	// check if user is disabled: redundant, authcode should never have been generated
+	if !user.Enabled {
+		return nil, fmt.Errorf("%s (%s): %v", ErrUserDisabled, user.Username, err)
+	}
+
+	// check if user account expired
+	if user.AccountExpired {
+		return nil, fmt.Errorf("%s (%s): %v", ErrUserAccountExpired, user.Username, err)
+	}
+
+	// check if user account locked
+	if user.AccountLocked {
+		return nil, fmt.Errorf("%s (%s): %v", ErrUserAccountLocked, user.Username, err)
+	}
+
+	// TODO: decrypt data, perform checks, and return user data
+
+	return &OauthUserData{}, nil
 }

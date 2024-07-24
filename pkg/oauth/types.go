@@ -2,6 +2,27 @@ package oauth
 
 import "github.com/tdeslauriers/carapace/pkg/data"
 
+const (
+
+	// 400
+	ErrValidateAuthCode = "failed to validate auth code data"
+
+	// 401
+	ErrIndexNotFound = "auth code does not exist"
+
+	ErrAuthcodeExpired = "auth code expired"
+	ErrAuthcodeRevoked = "auth code revoked"
+	ErrAuthcodeClaimed = "auth code has been claimed already"
+
+	ErrUserDisabled       = "user has been disabled"
+	ErrUserAccountLocked  = "user account is locked"
+	ErrUserAccountExpired = "user account is expired"
+
+	// 500
+	ErrGenAuthCodeIndex  = "failed to generate auth code index"
+	ErrFailedLookupIndex = "failed to look up auth code record" // sql error/problem => NOT zero results
+)
+
 // Client is a model for client table in the identity service db
 type Client struct {
 	ClientId      string          `json:"client_id" db:"uuid"`
@@ -68,4 +89,24 @@ type AuthcodeAccount struct {
 	CreatedAt    string `json:"created_at" db:"created_at"`
 }
 
+// OauthUserData is a model for oauth user data returned by db query of authcode values
+// Note: it omits identifiers, primary keys, indexes, etc. because unnecessary for application prurposes
+type OauthUserData struct {
+	// account table
+	Username       string `json:"username" db:"username"`
+	Firstname      string `json:"firstname" db:"firstname"`
+	Lastname       string `json:"lastname" db:"lastname"`
+	BirthDate      string `json:"birthdate" db:"birthdate"`
+	Enabled        bool   `json:"enabled" db:"enabled"`
+	AccountExpired bool   `json:"account_expired" db:"account_expired"`
+	AccountLocked  bool   `json:"account_locked" db:"account_locked"`
 
+	// authcode table
+	Authcode          string          `json:"authcode" db:"authcode"`
+	ClientId          string          `json:"client_id" db:"client_id"`
+	RedirectUrl       string          `json:"redirect_url" db:"redirect_url"`
+	Scopes            string          `json:"scopes" db:"scopes"`
+	AuthcodeCreatedAt data.CustomTime `json:"created_at" db:"created_at"`
+	AuthcodeClaimed   bool            `json:"claimed" db:"claimed"`
+	AuthcodeRevoked   bool            `json:"revoked" db:"revoked"`
+}

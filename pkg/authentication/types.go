@@ -9,3 +9,5 @@ type AccountScope struct {
 	ScopeUuid   string          `json:"scope_uuid" db:"scope_uuid"`
 	CreatedAt   data.CustomTime `json:"created_at" db:"created_at"`
 }
+
+
