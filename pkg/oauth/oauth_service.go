@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"shaw/internal/util"
 	"strings"
@@ -12,11 +13,27 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
 )
 
 type Service interface {
+	OauthService
+	OauthErrService
+}
+
+func NewService(db data.SqlRepository, c data.Cryptor, i data.Indexer) Service {
+	return &service{
+		db:      db,
+		cipher:  c,
+		indexer: i,
+
+		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentOauthFlow)),
+	}
+}
+
+type OauthService interface {
 	// IsVaildRedirect validates the client and redirect url exist, are linked, and are enabled/not expired/not locked
 	IsValidRedirect(clientid, url string) (bool, error)
 
@@ -32,14 +49,8 @@ type Service interface {
 	RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, error)
 }
 
-func NewService(db data.SqlRepository, c data.Cryptor, i data.Indexer) Service {
-	return &service{
-		db:      db,
-		cipher:  c,
-		indexer: i,
-
-		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentOauthFlow)),
-	}
+type OauthErrService interface {
+	HandleServiceErr(err error, w http.ResponseWriter)
 }
 
 var _ Service = (*service)(nil)
@@ -451,11 +462,10 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 		}
 	}
 
-	// perform expiry, enabled, etc., checks before decryption
-	// check authcode expiry
-	now := time.Now().UTC()
-	if user.AuthcodeCreatedAt.Add(5 * time.Minute).Before(now) {
-		return nil, fmt.Errorf("%s (xxxxxx-%s): %v", ErrAuthcodeExpired, cmd.AuthCode[len(cmd.AuthCode)-6:], err)
+	// perform expiry, revoked, enabled, etc., checks before decryption
+	// check if authcode revoked
+	if user.AuthcodeRevoked {
+		return nil, fmt.Errorf("%s (xxxxxx-%s): %v", ErrAuthcodeRevoked, cmd.AuthCode[len(cmd.AuthCode)-6:], err)
 	}
 
 	// check if auth code has already been claimed
@@ -463,30 +473,314 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 		return nil, fmt.Errorf("%s (xxxxxx-%s): %v", ErrAuthcodeClaimed, cmd.AuthCode[len(cmd.AuthCode)-6:], err)
 	}
 
-	// check if authcode revoked
-	if user.AuthcodeRevoked {
-		return nil, fmt.Errorf("%s (xxxxxx-%s): %v", ErrAuthcodeRevoked, cmd.AuthCode[len(cmd.AuthCode)-6:], err)
+	// check authcode expiry
+	now := time.Now().UTC()
+	if user.AuthcodeCreatedAt.Add(5 * time.Minute).Before(now) {
+		return nil, fmt.Errorf("%s (xxxxxx-%s): %v", ErrAuthcodeExpired, cmd.AuthCode[len(cmd.AuthCode)-6:], err)
 	}
 
 	// check if user is disabled
 	// redundant, authcode should never have been generated
 	if !user.Enabled {
-		return nil, fmt.Errorf("%s (%s): %v", ErrUserDisabled, user.Username, err)
-	}
-
-	// check if user account expired
-	// redundant, authcode should never have been generated
-	if user.AccountExpired {
-		return nil, fmt.Errorf("%s (%s): %v", ErrUserAccountExpired, user.Username, err)
+		return nil, fmt.Errorf("authcode xxxxxx-%s: %s", cmd.AuthCode[len(cmd.AuthCode)-6:], ErrUserDisabled)
 	}
 
 	// check if user account locked
 	// redundant, authcode should never have been generated
 	if user.AccountLocked {
-		return nil, fmt.Errorf("%s (%s): %v", ErrUserAccountLocked, user.Username, err)
+		return nil, fmt.Errorf("authcode xxxxxx-%s: %s", cmd.AuthCode[len(cmd.AuthCode)-6:], ErrUserAccountLocked)
 	}
 
-	// TODO: decrypt data, perform checks, and return user data
+	// check if user account expired
+	// redundant, authcode should never have been generated
+	if user.AccountExpired {
+		return nil, fmt.Errorf("authcode xxxxxx-%s: %s", cmd.AuthCode[len(cmd.AuthCode)-6:], ErrUserAccountExpired)
+	}
 
-	return &OauthUserData{}, nil
+	// decrypt data
+	var (
+		wgDecrypt sync.WaitGroup
+
+		decryptedUsername    string
+		decryptedFirstname   string
+		decryptedLastname    string
+		decryptedBirthdate   string
+		decryptedAuthcode    string
+		decryptedClientId    string
+		decryptedRedirectUrl string
+		decryptedScopes      string
+
+		errChan = make(chan error, 3)
+	)
+
+	// decrypt username
+	wgDecrypt.Add(1)
+	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		decrypted, err := s.cipher.DecryptServiceData(encrypted)
+		if err != nil {
+			errs <- fmt.Errorf("%s: %v", ErrDecryptUsername, err)
+			return
+		}
+		*plaintext = decrypted
+	}(user.Username, &decryptedUsername, errChan, &wgDecrypt)
+
+	// decrypt first name
+	wgDecrypt.Add(1)
+	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		decrypted, err := s.cipher.DecryptServiceData(encrypted)
+		if err != nil {
+			errs <- fmt.Errorf("%s: %v", ErrDecryptFirstname, err)
+			return
+		}
+		*plaintext = decrypted
+	}(user.Firstname, &decryptedFirstname, errChan, &wgDecrypt)
+
+	// decrypt last name
+	wgDecrypt.Add(1)
+	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		decrypted, err := s.cipher.DecryptServiceData(encrypted)
+		if err != nil {
+			errs <- fmt.Errorf("%s: %v", ErrDecryptLastname, err)
+			return
+		}
+		*plaintext = decrypted
+	}(user.Lastname, &decryptedLastname, errChan, &wgDecrypt)
+
+	// decrypt birthdate
+	wgDecrypt.Add(1)
+	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		decrypted, err := s.cipher.DecryptServiceData(encrypted)
+		if err != nil {
+			errs <- fmt.Errorf("%s: %v", ErrDecryptBirthdate, err)
+			return
+		}
+		*plaintext = decrypted
+	}(user.BirthDate, &decryptedBirthdate, errChan, &wgDecrypt)
+
+	// decrypt authcode
+	wgDecrypt.Add(1)
+	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		decrypted, err := s.cipher.DecryptServiceData(encrypted)
+		if err != nil {
+			errs <- fmt.Errorf("%s: %v", ErrDecryptAuthcode, err)
+			return
+		}
+		*plaintext = decrypted
+	}(user.Authcode, &decryptedAuthcode, errChan, &wgDecrypt)
+
+	// decrypt client id
+	wgDecrypt.Add(1)
+	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		decrypted, err := s.cipher.DecryptServiceData(encrypted)
+		if err != nil {
+			errs <- fmt.Errorf("%s: %v", ErrDecryptClientid, err)
+			return
+		}
+		*plaintext = decrypted
+	}(user.ClientId, &decryptedClientId, errChan, &wgDecrypt)
+
+	// decrypt redirect url
+	wgDecrypt.Add(1)
+	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		decrypted, err := s.cipher.DecryptServiceData(encrypted)
+		if err != nil {
+			errs <- fmt.Errorf("%s: %v", ErrDecryptRedirecturl, err)
+			return
+		}
+		*plaintext = decrypted
+	}(user.RedirectUrl, &decryptedRedirectUrl, errChan, &wgDecrypt)
+
+	// decrypt scopes
+	wgDecrypt.Add(1)
+	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		decrypted, err := s.cipher.DecryptServiceData(encrypted)
+		if err != nil {
+			errs <- fmt.Errorf("%s: %v", ErrDecryptScopes, err)
+			return
+		}
+		*plaintext = decrypted
+	}(user.Scopes, &decryptedScopes, errChan, &wgDecrypt)
+
+	// wait for all decryption goroutines to finish
+	wgDecrypt.Wait()
+	close(errChan)
+
+	// consolidate and return any errors
+	if len(errChan) > 0 {
+		var builder strings.Builder
+		count := 0
+		for e := range errChan {
+			builder.WriteString(e.Error())
+			if count < len(errChan)-1 {
+				builder.WriteString("; ")
+			}
+			count++
+		}
+		return nil, fmt.Errorf("%s for auth code (xxxxxx-%s): %v", ErrFailedDecrypt, cmd.AuthCode[len(cmd.AuthCode)-6:], builder.String())
+	}
+
+	// validate cmd data against decrypted data
+	// authcode mismatch should not happen since auth code generates the lookup index
+	if cmd.AuthCode != decryptedAuthcode {
+		return nil, fmt.Errorf("%s for auth code (xxxxxx-%s)", ErrMismatchAuthcode, cmd.AuthCode[len(cmd.AuthCode)-6:])
+	}
+
+	// check client id submitted matches decrypted client id
+	if cmd.ClientId != decryptedClientId {
+		return nil, fmt.Errorf("%s for auth code (xxxxxx-%s)", ErrMismatchClientid, cmd.AuthCode[len(cmd.AuthCode)-6:])
+	}
+
+	// check redirect url submitted matches decrypted redirect url
+	if cmd.RedirectUrl != decryptedRedirectUrl {
+		return nil, fmt.Errorf("%s for auth code (xxxxxx-%s)", ErrMismatchRedirect, cmd.AuthCode[len(cmd.AuthCode)-6:])
+	}
+
+	// build and return user data
+	return &OauthUserData{
+		Username:       decryptedUsername,
+		Firstname:      decryptedFirstname,
+		Lastname:       decryptedLastname,
+		BirthDate:      decryptedBirthdate,
+		Enabled:        user.Enabled,
+		AccountExpired: user.AccountExpired,
+		AccountLocked:  user.AccountLocked,
+
+		Authcode:          decryptedAuthcode,
+		ClientId:          decryptedClientId,
+		RedirectUrl:       decryptedRedirectUrl,
+		Scopes:            decryptedScopes,
+		AuthcodeCreatedAt: user.AuthcodeCreatedAt,
+		AuthcodeClaimed:   user.AuthcodeClaimed,
+		AuthcodeRevoked:   user.AuthcodeRevoked,
+	}, nil
+}
+
+func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
+	switch {
+	// 400
+	case strings.Contains(err.Error(), ErrValidateAuthCode):
+		s.logger.Error(err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusBadRequest,
+			Message:    ErrValidateAuthCode,
+		}
+		e.SendJsonErr(w)
+		return
+
+		// 401
+	case strings.Contains(err.Error(), ErrInvalidGrantType):
+		s.logger.Error(err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    ErrInvalidGrantType,
+		}
+		e.SendJsonErr(w)
+		return
+	case strings.Contains(err.Error(), ErrIndexNotFound):
+		s.logger.Error(err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    ErrIndexNotFound,
+		}
+		e.SendJsonErr(w)
+		return
+	case strings.Contains(err.Error(), ErrAuthcodeRevoked):
+		s.logger.Error(err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    ErrAuthcodeRevoked,
+		}
+		e.SendJsonErr(w)
+		return
+	case strings.Contains(err.Error(), ErrAuthcodeClaimed):
+		s.logger.Error(err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    ErrAuthcodeClaimed,
+		}
+		e.SendJsonErr(w)
+		return
+	case strings.Contains(err.Error(), ErrAuthcodeExpired):
+		s.logger.Error(err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    ErrAuthcodeExpired,
+		}
+		e.SendJsonErr(w)
+		return
+	case strings.Contains(err.Error(), ErrUserDisabled):
+		s.logger.Error(err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    ErrUserDisabled,
+		}
+		e.SendJsonErr(w)
+		return
+	case strings.Contains(err.Error(), ErrUserAccountLocked):
+		s.logger.Error(err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    ErrUserAccountLocked,
+		}
+		e.SendJsonErr(w)
+		return
+	case strings.Contains(err.Error(), ErrUserAccountExpired):
+		s.logger.Error(err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    ErrUserAccountExpired,
+		}
+		e.SendJsonErr(w)
+		return
+	case strings.Contains(err.Error(), ErrMismatchAuthcode):
+		s.logger.Error(err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    ErrMismatchAuthcode,
+		}
+		e.SendJsonErr(w)
+		return
+	case strings.Contains(err.Error(), ErrMismatchClientid):
+		s.logger.Error(err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    ErrMismatchClientid,
+		}
+		e.SendJsonErr(w)
+		return
+	case strings.Contains(err.Error(), ErrMismatchRedirect):
+		s.logger.Error(err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    ErrMismatchRedirect,
+		}
+		e.SendJsonErr(w)
+		return
+
+		// 500
+	default:
+		s.logger.Error(err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "internal server error: unable to retrieve user data from auth code",
+		}
+		e.SendJsonErr(w)
+		return
+	}
 }

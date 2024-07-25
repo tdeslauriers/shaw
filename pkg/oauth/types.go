@@ -20,9 +20,23 @@ const (
 	ErrUserAccountLocked  = "user account is locked"
 	ErrUserAccountExpired = "user account is expired"
 
+	ErrMismatchAuthcode = "submitted auth code does not match stored auth code"
+	ErrMismatchClientid = "submitted client id does not match stored client id"
+	ErrMismatchRedirect  = "submitted redirect url does not match stored redirect url"
+
 	// 500
 	ErrGenAuthCodeIndex  = "failed to generate auth code index"
 	ErrFailedLookupIndex = "failed to look up auth code record" // sql error/problem => NOT zero results
+
+	ErrFailedDecrypt      = "failed to decrypt oauth data"
+	ErrDecryptUsername    = "failed to decrypt username"
+	ErrDecryptFirstname   = "failed to decrypt first name"
+	ErrDecryptLastname    = "failed to decrypt last name"
+	ErrDecryptBirthdate   = "failed to decrypt birthdate"
+	ErrDecryptAuthcode    = "failed to decrypt authcode"
+	ErrDecryptClientid    = "failed to decrypt client id"
+	ErrDecryptRedirecturl = "failed to decrypt redirect url"
+	ErrDecryptScopes      = "failed to decrypt scopes"
 )
 
 // Client is a model for client table in the identity service db

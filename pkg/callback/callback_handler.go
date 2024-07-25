@@ -55,6 +55,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	if authorized, err := h.s2sVerifier.IsAuthorized(allowed, svcToken); !authorized {
 		h.logger.Error("callback handler failed to authorize service token", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
+		return
 	}
 
 	// decode request body: auth code, state, nonce, client id, redirect url
@@ -66,6 +67,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 			Message:    "failed to decode callback command request body",
 		}
 		e.SendJsonErr(w)
+		return
 	}
 
 	// lightweight validation: check for empty fields or too long
@@ -76,10 +78,15 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 			Message:    "failed to validate callback command request body",
 		}
 		e.SendJsonErr(w)
+		return
 	}
 
 	// exchange auth code for user authentication data, if exists/valid
 	userData, err := h.oauth.RetrieveUserData(cmd)
+	if err != nil {
+		h.oauth.HandleServiceErr(err, w)
+		return
+	}
 
 	// TODO: mint jwt access token and refresh tokens
 

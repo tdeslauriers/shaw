@@ -7,7 +7,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
 	"github.com/tdeslauriers/carapace/pkg/validate"
 )
@@ -27,6 +29,8 @@ const (
 	ScopeThreeId = "9012-scope"
 	ScopeFourId  = "3456-scope"
 	ScopeFiveId  = "7890-scope"
+
+	RealScopes = "r:service-one:*,r:service-two:*"
 )
 
 var TestScopes = []types.Scope{
@@ -109,10 +113,219 @@ func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, arg
 			return sql.ErrNoRows
 		}
 		return nil
+
+		// retrieve user data lookups
+	case *OauthUserData:
+		switch args[0] {
+		case "index-valid-auth-code-value":
+			*record.(*OauthUserData) = OauthUserData{
+				Username:          "encrypted-" + RealUsername,
+				Firstname:         "encrypted-" + "Darth",
+				Lastname:          "encrypted-" + "Vader",
+				BirthDate:         "encrypted-" + "1977-05-25",
+				Enabled:           true,
+				AccountExpired:    false,
+				AccountLocked:     false,
+				Authcode:          "encrypted-" + "valid-auth-code-value",
+				ClientId:          "encrypted-" + RealClient,
+				RedirectUrl:       "encrypted-" + RealRedirect,
+				Scopes:            "encrypted-" + RealScopes,
+				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeClaimed:   false,
+				AuthcodeRevoked:   false,
+			}
+			return nil
+		case "index-auth-code-revoked":
+			*record.(*OauthUserData) = OauthUserData{
+				Username:          "encrypted-" + RealUsername,
+				Firstname:         "encrypted-" + "Darth",
+				Lastname:          "encrypted-" + "Vader",
+				BirthDate:         "encrypted-" + "1977-05-25",
+				Enabled:           true,
+				AccountExpired:    false,
+				AccountLocked:     false,
+				Authcode:          "encrypted-" + "valid-auth-code-value",
+				ClientId:          "encrypted-" + RealClient,
+				RedirectUrl:       "encrypted-" + RealRedirect,
+				Scopes:            "encrypted-" + RealScopes,
+				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeClaimed:   false,
+				AuthcodeRevoked:   true,
+			}
+			return nil
+		case "index-auth-code-claimed":
+			*record.(*OauthUserData) = OauthUserData{
+				Username:          "encrypted-" + RealUsername,
+				Firstname:         "encrypted-" + "Darth",
+				Lastname:          "encrypted-" + "Vader",
+				BirthDate:         "encrypted-" + "1977-05-25",
+				Enabled:           true,
+				AccountExpired:    false,
+				AccountLocked:     false,
+				Authcode:          "encrypted-" + "valid-auth-code-value",
+				ClientId:          "encrypted-" + RealClient,
+				RedirectUrl:       "encrypted-" + RealRedirect,
+				Scopes:            "encrypted-" + RealScopes,
+				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeClaimed:   true,
+				AuthcodeRevoked:   false,
+			}
+			return nil
+		case "index-auth-code-expired":
+			expired := time.Now().Add(-time.Hour * 2)
+			*record.(*OauthUserData) = OauthUserData{
+				Username:          "encrypted-" + RealUsername,
+				Firstname:         "encrypted-" + "Darth",
+				Lastname:          "encrypted-" + "Vader",
+				BirthDate:         "encrypted-" + "1977-05-25",
+				Enabled:           true,
+				AccountExpired:    false,
+				AccountLocked:     false,
+				Authcode:          "encrypted-" + "valid-auth-code-value",
+				ClientId:          "encrypted-" + RealClient,
+				RedirectUrl:       "encrypted-" + RealRedirect,
+				Scopes:            "encrypted-" + RealScopes,
+				AuthcodeCreatedAt: data.CustomTime{expired},
+				AuthcodeClaimed:   false,
+				AuthcodeRevoked:   false,
+			}
+			return nil
+		case "index-user-has-been-disabled":
+			*record.(*OauthUserData) = OauthUserData{
+				Username:          "encrypted-" + RealUsername,
+				Firstname:         "encrypted-" + "Darth",
+				Lastname:          "encrypted-" + "Vader",
+				BirthDate:         "encrypted-" + "1977-05-25",
+				Enabled:           false,
+				AccountExpired:    false,
+				AccountLocked:     false,
+				Authcode:          "encrypted-" + "valid-auth-code-value",
+				ClientId:          "encrypted-" + RealClient,
+				RedirectUrl:       "encrypted-" + RealRedirect,
+				Scopes:            "encrypted-" + RealScopes,
+				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeClaimed:   false,
+				AuthcodeRevoked:   false,
+			}
+			return nil
+		case "index-user-has-been-locked":
+			*record.(*OauthUserData) = OauthUserData{
+				Username:          "encrypted-" + RealUsername,
+				Firstname:         "encrypted-" + "Darth",
+				Lastname:          "encrypted-" + "Vader",
+				BirthDate:         "encrypted-" + "1977-05-25",
+				Enabled:           true,
+				AccountExpired:    false,
+				AccountLocked:     true,
+				Authcode:          "encrypted-" + "valid-auth-code-value",
+				ClientId:          "encrypted-" + RealClient,
+				RedirectUrl:       "encrypted-" + RealRedirect,
+				Scopes:            "encrypted-" + RealScopes,
+				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeClaimed:   false,
+				AuthcodeRevoked:   false,
+			}
+			return nil
+		case "index-user-record-has-expired":
+			*record.(*OauthUserData) = OauthUserData{
+				Username:          "encrypted-" + RealUsername,
+				Firstname:         "encrypted-" + "Darth",
+				Lastname:          "encrypted-" + "Vader",
+				BirthDate:         "encrypted-" + "1977-05-25",
+				Enabled:           true,
+				AccountExpired:    true,
+				AccountLocked:     false,
+				Authcode:          "encrypted-" + "valid-auth-code-value",
+				ClientId:          "encrypted-" + RealClient,
+				RedirectUrl:       "encrypted-" + RealRedirect,
+				Scopes:            "encrypted-" + RealScopes,
+				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeClaimed:   false,
+				AuthcodeRevoked:   false,
+			}
+			return nil
+		case "index-failed-decrypt-username":
+			*record.(*OauthUserData) = OauthUserData{
+				Username:          "failed-decrypt-username",
+				Firstname:         "encrypted-" + "Darth",
+				Lastname:          "encrypted-" + "Vader",
+				BirthDate:         "encrypted-" + "1977-05-25",
+				Enabled:           true,
+				AccountExpired:    false,
+				AccountLocked:     false,
+				Authcode:          "encrypted-" + "valid-auth-code-value",
+				ClientId:          "encrypted-" + RealClient,
+				RedirectUrl:       "encrypted-" + RealRedirect,
+				Scopes:            "encrypted-" + RealScopes,
+				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeClaimed:   false,
+				AuthcodeRevoked:   false,
+			}
+			return nil
+		case "index-auth-code-mismatch":
+			*record.(*OauthUserData) = OauthUserData{
+				Username:          "encrypted-" + RealUsername,
+				Firstname:         "encrypted-" + "Darth",
+				Lastname:          "encrypted-" + "Vader",
+				BirthDate:         "encrypted-" + "1977-05-25",
+				Enabled:           true,
+				AccountExpired:    false,
+				AccountLocked:     false,
+				Authcode:          "encrypted-" + "this should be impossible",
+				ClientId:          "encrypted-" + RealClient,
+				RedirectUrl:       "encrypted-" + RealRedirect,
+				Scopes:            "encrypted-" + RealScopes,
+				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeClaimed:   false,
+				AuthcodeRevoked:   false,
+			}
+			return nil
+		case "index-client-id-mismatch":
+			*record.(*OauthUserData) = OauthUserData{
+				Username:          "encrypted-" + RealUsername,
+				Firstname:         "encrypted-" + "Darth",
+				Lastname:          "encrypted-" + "Vader",
+				BirthDate:         "encrypted-" + "1977-05-25",
+				Enabled:           true,
+				AccountExpired:    false,
+				AccountLocked:     false,
+				Authcode:          "encrypted-" + "client-id-mismatch",
+				ClientId:          "encrypted-" + "Wrong Client",
+				RedirectUrl:       "encrypted-" + RealRedirect,
+				Scopes:            "encrypted-" + RealScopes,
+				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeClaimed:   false,
+				AuthcodeRevoked:   false,
+			}
+			return nil
+		case "index-redirect-mismatch":
+			*record.(*OauthUserData) = OauthUserData{
+				Username:          "encrypted-" + RealUsername,
+				Firstname:         "encrypted-" + "Darth",
+				Lastname:          "encrypted-" + "Vader",
+				BirthDate:         "encrypted-" + "1977-05-25",
+				Enabled:           true,
+				AccountExpired:    false,
+				AccountLocked:     false,
+				Authcode:          "encrypted-" + "redirect-mismatch",
+				ClientId:          "encrypted-" + RealClient,
+				RedirectUrl:       "encrypted-" + "Wrong Redirect",
+				Scopes:            "encrypted-" + RealScopes,
+				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeClaimed:   false,
+				AuthcodeRevoked:   false,
+			}
+			return nil
+		case "index-invalid-auth-code-value":
+			return sql.ErrNoRows
+		default:
+			return sql.ErrNoRows
+		}
+
 	default:
 		return fmt.Errorf("SelectRecord() record interface was given unexpected type, expected ClientRedirect or AccountClient, got %T", r)
 	}
-
+	return nil
 }
 func (dao *mockSqlRepository) SelectExists(query string, args ...interface{}) (bool, error) {
 	return true, nil
@@ -141,13 +354,18 @@ func (c *mockCryptor) EncryptServiceData(plaintext string) (string, error) {
 	return fmt.Sprintf("encrypted-%s", plaintext), nil
 }
 
-func (c *mockCryptor) DecryptServiceData(ciphertext string) (string, error) { return ciphertext, nil }
+func (c *mockCryptor) DecryptServiceData(ciphertext string) (string, error) {
+	if strings.Contains(ciphertext, "failed-") {
+		return "", errors.New("failed to decrypt")
+	}
+	return strings.ReplaceAll(ciphertext, "encrypted-", ""), nil
+}
 
 // mock Indexer
 type mockIndexer struct{}
 
 func (i *mockIndexer) ObtainBlindIndex(identifier string) (string, error) {
-	if identifier == "index-failed" {
+	if strings.Contains(identifier, "index-failed") {
 		return "", errors.New("failed to generate auth code index:")
 	}
 	return fmt.Sprintf("index-%s", identifier), nil
@@ -203,7 +421,7 @@ func TestIsValidRedirect(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			// create a new clientRegistration with a mockSqlRepository
-			cr := NewService(&mockSqlRepository{}, nil, &mockIndexer{})
+			cr := NewService(&mockSqlRepository{}, &mockCryptor{}, &mockIndexer{})
 
 			valid, err := cr.IsValidRedirect(tc.clientId, tc.redirect)
 			if valid != tc.valid {
@@ -381,6 +599,266 @@ func TestGenerateAuthCode(t *testing.T) {
 			}
 			if err == nil && !validate.IsValidUuid(code) {
 				t.Errorf("expected auth code as valid uuid, got %v", code)
+			}
+		})
+	}
+}
+
+func TestRetrieveUserData(t *testing.T) {
+	testCases := []struct {
+		name string
+		cmd  types.AccessTokenCmd
+		user *OauthUserData
+		err  error
+	}{
+		{
+			name: "success - valid access code cmd",
+			cmd: types.AccessTokenCmd{
+				AuthCode:    "valid-auth-code-value",
+				Grant:       "authorization_code",
+				ClientId:    RealClient,
+				RedirectUrl: RealRedirect,
+			},
+			user: &OauthUserData{
+				Username:        RealUsername,
+				Firstname:       "Darth",
+				Lastname:        "Vader",
+				BirthDate:       "1977-05-25",
+				Enabled:         true,
+				AccountExpired:  false,
+				AccountLocked:   false,
+				Authcode:        "valid-auth-code-value",
+				ClientId:        RealClient,
+				RedirectUrl:     RealRedirect,
+				Scopes:          RealScopes,
+				AuthcodeClaimed: false,
+				AuthcodeRevoked: false,
+			},
+			err: nil,
+		},
+		// only need to test one validation failure to test the error behavior
+		{
+			name: "invalid auth code - auth code empty",
+			cmd: types.AccessTokenCmd{
+				AuthCode:    "",
+				Grant:       "authorization_code",
+				ClientId:    RealClient,
+				RedirectUrl: RealRedirect,
+			},
+			user: nil,
+			err:  errors.New(ErrValidateAuthCode),
+		},
+		{
+			name: "failed - invalid grant type",
+			cmd: types.AccessTokenCmd{
+				AuthCode:    "valid-auth-code-value",
+				Grant:       "invalid_grant_type",
+				ClientId:    RealClient,
+				RedirectUrl: RealRedirect,
+			},
+			user: nil,
+			err:  errors.New(ErrInvalidGrantType),
+		},
+		{
+			name: "failed - index failed to generate",
+			cmd: types.AccessTokenCmd{
+				AuthCode:    "index-failed-auth-code-value",
+				Grant:       "authorization_code",
+				ClientId:    RealClient,
+				RedirectUrl: RealRedirect,
+			},
+			user: nil,
+			err:  errors.New(ErrGenAuthCodeIndex),
+		},
+		{
+			name: "failed - invalid auth code not found",
+			cmd: types.AccessTokenCmd{
+				AuthCode:    "invalid-auth-code-value",
+				Grant:       "authorization_code",
+				ClientId:    RealClient,
+				RedirectUrl: RealRedirect,
+			},
+			user: nil,
+			err:  errors.New(ErrIndexNotFound),
+		},
+		{
+			name: "failed - auth code revoked",
+			cmd: types.AccessTokenCmd{
+				AuthCode:    "auth-code-revoked",
+				Grant:       "authorization_code",
+				ClientId:    RealClient,
+				RedirectUrl: RealRedirect,
+			},
+			user: nil,
+			err:  errors.New(ErrAuthcodeRevoked),
+		},
+		{
+			name: "failed - auth code claimed",
+			cmd: types.AccessTokenCmd{
+				AuthCode:    "auth-code-claimed",
+				Grant:       "authorization_code",
+				ClientId:    RealClient,
+				RedirectUrl: RealRedirect,
+			},
+			user: nil,
+			err:  errors.New(ErrAuthcodeClaimed),
+		},
+		{
+			name: "failed - auth code expired",
+			cmd: types.AccessTokenCmd{
+				AuthCode:    "auth-code-expired",
+				Grant:       "authorization_code",
+				ClientId:    RealClient,
+				RedirectUrl: RealRedirect,
+			},
+			user: nil,
+			err:  errors.New(ErrAuthcodeExpired),
+		},
+		{
+			name: "failed - user disabled",
+			cmd: types.AccessTokenCmd{
+				AuthCode:    "user-has-been-disabled",
+				Grant:       "authorization_code",
+				ClientId:    RealClient,
+				RedirectUrl: RealRedirect,
+			},
+			user: nil,
+			err:  errors.New(ErrUserDisabled),
+		},
+		{
+			name: "failed - user locked",
+			cmd: types.AccessTokenCmd{
+				AuthCode:    "user-has-been-locked",
+				Grant:       "authorization_code",
+				ClientId:    RealClient,
+				RedirectUrl: RealRedirect,
+			},
+			user: nil,
+			err:  errors.New(ErrUserAccountLocked),
+		},
+		{
+			name: "failed - user expired",
+			cmd: types.AccessTokenCmd{
+				AuthCode:    "user-record-has-expired",
+				Grant:       "authorization_code",
+				ClientId:    RealClient,
+				RedirectUrl: RealRedirect,
+			},
+			user: nil,
+			err:  errors.New(ErrUserAccountExpired),
+		},
+		// only need to test one decrypt failure to test the error behavior
+		{
+			name: "failed - decrypt username",
+			cmd: types.AccessTokenCmd{
+				AuthCode:    "failed-decrypt-username",
+				Grant:       "authorization_code",
+				ClientId:    RealClient,
+				RedirectUrl: RealRedirect,
+			},
+			user: nil,
+			err:  errors.New(ErrDecryptUsername),
+		},
+		{
+			name: "failed - authcode mismatch",
+			cmd: types.AccessTokenCmd{
+				AuthCode:    "auth-code-mismatch",
+				Grant:       "authorization_code",
+				ClientId:    "invalid-client-uuid",
+				RedirectUrl: RealRedirect,
+			},
+			user: nil,
+			err:  errors.New(ErrMismatchAuthcode),
+		},
+		{
+			name: "failed - redirect mismatch",
+			cmd: types.AccessTokenCmd{
+				AuthCode:    "client-id-mismatch",
+				Grant:       "authorization_code",
+				ClientId:    RealClient,
+				RedirectUrl: "https://invalid-redirect-url.com",
+			},
+			user: nil,
+			err:  errors.New(ErrMismatchClientid),
+		},
+		{
+			name: "failed - redirect mismatch",
+			cmd: types.AccessTokenCmd{
+				AuthCode:    "redirect-mismatch",
+				Grant:       "authorization_code",
+				ClientId:    RealClient,
+				RedirectUrl: RealRedirect,
+			},
+			user: nil,
+			err:  errors.New(ErrMismatchRedirect),
+		},
+	}
+
+	oauthSvc := NewService(&mockSqlRepository{}, &mockCryptor{}, &mockIndexer{})
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+
+			user, err := oauthSvc.RetrieveUserData(tc.cmd)
+			if err != nil {
+				if !strings.Contains(err.Error(), tc.err.Error()) {
+					t.Errorf("expected %v, got %v", tc.err, err)
+				}
+			}
+
+			if err == nil {
+
+				if user.Username != tc.user.Username {
+					t.Errorf("expected username %v, got %v", tc.user.Username, user.Username)
+				}
+
+				if user.Firstname != tc.user.Firstname {
+					t.Errorf("expected first name %v, got %v", tc.user.Firstname, user.Firstname)
+				}
+
+				if user.Lastname != tc.user.Lastname {
+					t.Errorf("expected last name %v, got %v", tc.user.Lastname, user.Lastname)
+				}
+
+				if user.BirthDate != tc.user.BirthDate {
+					t.Errorf("expected birthdate %v, got %v", tc.user.BirthDate, user.BirthDate)
+				}
+
+				if user.Enabled != tc.user.Enabled {
+					t.Errorf("expected enabled %v, got %v", tc.user.Enabled, user.Enabled)
+				}
+
+				if user.AccountExpired != tc.user.AccountExpired {
+					t.Errorf("expected account expired %v, got %v", tc.user.AccountExpired, user.AccountExpired)
+				}
+
+				if user.AccountLocked != tc.user.AccountLocked {
+					t.Errorf("expected account locked %v, got %v", tc.user.AccountLocked, user.AccountLocked)
+				}
+
+				if user.Authcode != tc.user.Authcode {
+					t.Errorf("expected auth code %v, got %v", tc.user.Authcode, user.Authcode)
+				}
+
+				if user.ClientId != tc.user.ClientId {
+					t.Errorf("expected client id %v, got %v", tc.user.ClientId, user.ClientId)
+				}
+
+				if user.RedirectUrl != tc.user.RedirectUrl {
+					t.Errorf("expected redirect url %v, got %v", tc.user.RedirectUrl, user.RedirectUrl)
+				}
+
+				if user.Scopes != tc.user.Scopes {
+					t.Errorf("expected scopes %v, got %v", tc.user.Scopes, user.Scopes)
+				}
+
+				if user.AuthcodeClaimed != tc.user.AuthcodeClaimed {
+					t.Errorf("expected auth code claimed %v, got %v", tc.user.AuthcodeClaimed, user.AuthcodeClaimed)
+				}
+
+				if user.AuthcodeRevoked != tc.user.AuthcodeRevoked {
+					t.Errorf("expected auth code revoked %v, got %v", tc.user.AuthcodeRevoked, user.AuthcodeRevoked)
+				}
 			}
 		})
 	}
