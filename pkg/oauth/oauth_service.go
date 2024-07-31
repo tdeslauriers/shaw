@@ -50,6 +50,7 @@ type OauthService interface {
 }
 
 type OauthErrService interface {
+	// HandleServiceErr handles errors returned by the service methods and sends the appropriate http response
 	HandleServiceErr(err error, w http.ResponseWriter)
 }
 

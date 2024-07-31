@@ -116,7 +116,7 @@ func New(config config.Config) (Identity, error) {
 		return nil, fmt.Errorf("not an ECDSA public key")
 	}
 
-	s2sVerifier := jwt.NewJwtVerifier(config.ServiceName, publicKey)
+	s2sVerifier := jwt.NewVerifier(config.ServiceName, publicKey)
 
 	// retry config for s2s callers
 	retry := connect.RetryConfiguration{
@@ -126,7 +126,7 @@ func New(config config.Config) (Identity, error) {
 	}
 
 	// s2s caller
-	s2sCaller := connect.NewS2sCaller(config.ServiceAuth.Url, util.S2sServiceName, client, retry)
+	s2sCaller := connect.NewS2sCaller(config.ServiceAuth.Url, util.ServiceNameS2s, client, retry)
 
 	// s2s token provider
 	s2sCreds := provider.S2sCredentials{
@@ -147,7 +147,7 @@ func New(config config.Config) (Identity, error) {
 		return nil, fmt.Errorf("failed to parse priv Block to private key: %v", err)
 	}
 
-	signer := jwt.NewJwtSigner(privateKey)
+	signer := jwt.NewSigner(privateKey)
 
 	// user jwt verifier
 	//TODO: implement user jwt verifier
@@ -188,7 +188,7 @@ type identity struct {
 	config          config.Config
 	serverTls       *tls.Config
 	repository      data.SqlRepository
-	s2sVerifier     jwt.JwtVerifier
+	s2sVerifier     jwt.Verifier
 	authService     types.UserAuthService
 	oathService     oauth.Service
 	registerService register.Service

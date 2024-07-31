@@ -130,7 +130,7 @@ func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, arg
 				ClientId:          "encrypted-" + RealClient,
 				RedirectUrl:       "encrypted-" + RealRedirect,
 				Scopes:            "encrypted-" + RealScopes,
-				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeCreatedAt: data.CustomTime{Time: time.Now()},
 				AuthcodeClaimed:   false,
 				AuthcodeRevoked:   false,
 			}
@@ -148,7 +148,7 @@ func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, arg
 				ClientId:          "encrypted-" + RealClient,
 				RedirectUrl:       "encrypted-" + RealRedirect,
 				Scopes:            "encrypted-" + RealScopes,
-				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeCreatedAt: data.CustomTime{Time: time.Now()},
 				AuthcodeClaimed:   false,
 				AuthcodeRevoked:   true,
 			}
@@ -166,7 +166,7 @@ func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, arg
 				ClientId:          "encrypted-" + RealClient,
 				RedirectUrl:       "encrypted-" + RealRedirect,
 				Scopes:            "encrypted-" + RealScopes,
-				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeCreatedAt: data.CustomTime{Time: time.Now()},
 				AuthcodeClaimed:   true,
 				AuthcodeRevoked:   false,
 			}
@@ -185,7 +185,7 @@ func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, arg
 				ClientId:          "encrypted-" + RealClient,
 				RedirectUrl:       "encrypted-" + RealRedirect,
 				Scopes:            "encrypted-" + RealScopes,
-				AuthcodeCreatedAt: data.CustomTime{expired},
+				AuthcodeCreatedAt: data.CustomTime{Time: expired},
 				AuthcodeClaimed:   false,
 				AuthcodeRevoked:   false,
 			}
@@ -203,7 +203,7 @@ func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, arg
 				ClientId:          "encrypted-" + RealClient,
 				RedirectUrl:       "encrypted-" + RealRedirect,
 				Scopes:            "encrypted-" + RealScopes,
-				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeCreatedAt: data.CustomTime{Time: time.Now()},
 				AuthcodeClaimed:   false,
 				AuthcodeRevoked:   false,
 			}
@@ -221,7 +221,7 @@ func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, arg
 				ClientId:          "encrypted-" + RealClient,
 				RedirectUrl:       "encrypted-" + RealRedirect,
 				Scopes:            "encrypted-" + RealScopes,
-				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeCreatedAt: data.CustomTime{Time: time.Now()},
 				AuthcodeClaimed:   false,
 				AuthcodeRevoked:   false,
 			}
@@ -239,7 +239,7 @@ func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, arg
 				ClientId:          "encrypted-" + RealClient,
 				RedirectUrl:       "encrypted-" + RealRedirect,
 				Scopes:            "encrypted-" + RealScopes,
-				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeCreatedAt: data.CustomTime{Time: time.Now()},
 				AuthcodeClaimed:   false,
 				AuthcodeRevoked:   false,
 			}
@@ -257,7 +257,7 @@ func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, arg
 				ClientId:          "encrypted-" + RealClient,
 				RedirectUrl:       "encrypted-" + RealRedirect,
 				Scopes:            "encrypted-" + RealScopes,
-				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeCreatedAt: data.CustomTime{Time: time.Now()},
 				AuthcodeClaimed:   false,
 				AuthcodeRevoked:   false,
 			}
@@ -275,7 +275,7 @@ func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, arg
 				ClientId:          "encrypted-" + RealClient,
 				RedirectUrl:       "encrypted-" + RealRedirect,
 				Scopes:            "encrypted-" + RealScopes,
-				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeCreatedAt: data.CustomTime{Time: time.Now()},
 				AuthcodeClaimed:   false,
 				AuthcodeRevoked:   false,
 			}
@@ -293,7 +293,7 @@ func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, arg
 				ClientId:          "encrypted-" + "Wrong Client",
 				RedirectUrl:       "encrypted-" + RealRedirect,
 				Scopes:            "encrypted-" + RealScopes,
-				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeCreatedAt: data.CustomTime{Time: time.Now()},
 				AuthcodeClaimed:   false,
 				AuthcodeRevoked:   false,
 			}
@@ -311,7 +311,7 @@ func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, arg
 				ClientId:          "encrypted-" + RealClient,
 				RedirectUrl:       "encrypted-" + "Wrong Redirect",
 				Scopes:            "encrypted-" + RealScopes,
-				AuthcodeCreatedAt: data.CustomTime{time.Now()},
+				AuthcodeCreatedAt: data.CustomTime{Time: time.Now()},
 				AuthcodeClaimed:   false,
 				AuthcodeRevoked:   false,
 			}
@@ -325,7 +325,6 @@ func (dao *mockSqlRepository) SelectRecord(query string, record interface{}, arg
 	default:
 		return fmt.Errorf("SelectRecord() record interface was given unexpected type, expected ClientRedirect or AccountClient, got %T", r)
 	}
-	return nil
 }
 func (dao *mockSqlRepository) SelectExists(query string, args ...interface{}) (bool, error) {
 	return true, nil

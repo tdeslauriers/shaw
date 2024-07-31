@@ -22,7 +22,7 @@ const (
 
 	ErrMismatchAuthcode = "submitted auth code does not match stored auth code"
 	ErrMismatchClientid = "submitted client id does not match stored client id"
-	ErrMismatchRedirect  = "submitted redirect url does not match stored redirect url"
+	ErrMismatchRedirect = "submitted redirect url does not match stored redirect url"
 
 	// 500
 	ErrGenAuthCodeIndex  = "failed to generate auth code index"

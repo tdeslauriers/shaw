@@ -1,12 +1,17 @@
 package authentication
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
+	"shaw/internal/util"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/tdeslauriers/carapace/pkg/data"
+	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -27,6 +32,10 @@ const (
 	BcryptCost = 13
 )
 
+var (
+	RealScopes = "r:service-one:*,r:service-two:*"
+)
+
 type mockAuthIndexer struct{}
 
 func (idx *mockAuthIndexer) ObtainBlindIndex(input string) (string, error) {
@@ -35,6 +44,24 @@ func (idx *mockAuthIndexer) ObtainBlindIndex(input string) (string, error) {
 	}
 
 	return "index-" + input, nil
+}
+
+type mockCryptor struct{}
+
+func (c *mockCryptor) EncryptServiceData(data string) (string, error) {
+	if data == "failed to encrypt" {
+		return "", errors.New("failed to encrypt")
+	}
+
+	return "encrypted+" + data, nil
+}
+
+func (c *mockCryptor) DecryptServiceData(data string) (string, error) {
+	if data == "failed to decrypt" {
+		return "", errors.New("failed to decrypt")
+	}
+
+	return strings.TrimPrefix(data, "encrypted+"), nil
 }
 
 type mockAuthSqlRepository struct{}
@@ -150,7 +177,13 @@ func (dao *mockAuthSqlRepository) SelectRecord(query string, record interface{},
 func (dao *mockAuthSqlRepository) SelectExists(query string, args ...interface{}) (bool, error) {
 	return true, nil
 }
-func (dao *mockAuthSqlRepository) InsertRecord(query string, record interface{}) error  { return nil }
+func (dao *mockAuthSqlRepository) InsertRecord(query string, record interface{}) error {
+	// mock failed insert
+	if record.(types.UserRefresh).RefreshToken == "failed to persist" {
+		return errors.New("failed to insert")
+	}
+	return nil
+}
 func (dao *mockAuthSqlRepository) UpdateRecord(query string, args ...interface{}) error { return nil }
 func (dao *mockAuthSqlRepository) DeleteRecord(query string, args ...interface{}) error { return nil }
 func (dao *mockAuthSqlRepository) Close() error                                         { return nil }
@@ -159,6 +192,25 @@ type mockS2sTokenProvider struct{}
 
 func (tp *mockS2sTokenProvider) GetServiceToken(service string) (string, error) {
 	return "mock-service-token", nil
+}
+
+type mockSigner struct{}
+
+func (s *mockSigner) Mint(token *jwt.Token) error {
+
+	if token.Claims.Subject == RealUsername {
+		msg, _ := token.BuildBaseString()
+		token.BaseString = msg
+
+		token.Signature = []byte("real-signature")
+
+		token.Token = fmt.Sprintf("%s.%s", token.BaseString, base64.URLEncoding.EncodeToString(token.Signature))
+
+		return nil
+	} else {
+		return errors.New("failed ot sign access token jwt")
+	}
+
 }
 
 type mockS2sCaller struct{}
@@ -350,4 +402,150 @@ func TestGetScopes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMintToken(t *testing.T) {
+
+	testCases := []struct {
+		name        string
+		jwt         *jwt.Token
+		expectedErr error
+	}{
+		{
+			name: "success - signed token",
+			jwt: &jwt.Token{
+				Header: jwt.Header{
+					Alg: "HS256",
+					Typ: jwt.TokenType,
+				},
+				Claims: jwt.Claims{
+					Jti:       "1234",
+					Issuer:    util.ServiceName,
+					Subject:   RealUsername,
+					Audience:  types.BuildAudiences(RealScopes),
+					IssuedAt:  time.Now().UTC().Unix(),
+					NotBefore: time.Now().UTC().Unix(),
+					Expires:   time.Now().Add(AccessTokenDuration * time.Minute).Unix(),
+					Scopes:    RealScopes,
+				},
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "failure - triggering jwt.Mint error",
+			jwt: &jwt.Token{
+				Header: jwt.Header{
+					Alg: "HS256",
+					Typ: jwt.TokenType,
+				},
+				Claims: jwt.Claims{
+					Jti:       "1234",
+					Issuer:    util.ServiceName,
+					Subject:   "trigger error",
+					Audience:  types.BuildAudiences(RealScopes),
+					IssuedAt:  time.Now().UTC().Unix(),
+					NotBefore: time.Now().UTC().Unix(),
+					Expires:   time.Now().Add(AccessTokenDuration * time.Minute).Unix(),
+					Scopes:    RealScopes,
+				},
+			},
+			expectedErr: errors.New("failed to sign access token jwt"),
+		},
+	}
+
+	authservice := NewService(&mockAuthSqlRepository{}, &mockSigner{}, &mockAuthIndexer{}, nil, &mockS2sTokenProvider{}, &mockS2sCaller{})
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			jot, err := authservice.MintToken(RealUsername, RealScopes)
+			if err != nil && !strings.Contains(err.Error(), tc.expectedErr.Error()) {
+				t.Errorf("expected %v, got %v", tc.expectedErr, err)
+			} else {
+
+				if jot.BaseString == "" {
+					t.Errorf("expected base string to be populated")
+				}
+
+				if jot.Signature == nil {
+					t.Errorf("expected signature to be populated")
+				}
+
+				if jot.Token == "" {
+					t.Errorf("expected token to be populated")
+				} else {
+					segments := strings.Split(jot.Token, ".")
+					if len(segments) != 3 {
+						t.Errorf("expected token to have 3 segments, got %d", len(segments))
+					}
+				}
+
+			}
+		})
+	}
+}
+
+func TestPersistRefresh(t *testing.T) {
+
+	testCases := []struct {
+		name        string
+		refresh     types.UserRefresh
+		expectedErr error
+	}{
+		{
+			name: "success - refresh token persisted",
+			refresh: types.UserRefresh{
+				ClientId:     "1234",
+				RefreshToken: "1234-5678-9012-3456",
+				Username:     RealUsername,
+				CreatedAt:    data.CustomTime{Time: time.Now().UTC()},
+				Revoked:      false,
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "failure - failed to encrypt refresh token",
+			refresh: types.UserRefresh{
+				ClientId:     "1234",
+				RefreshToken: "failed to encrypt",
+				Username:     RealUsername,
+				CreatedAt:    data.CustomTime{Time: time.Now().UTC()},
+				Revoked:      false,
+			},
+			expectedErr: errors.New("failed to encrypt"),
+		},
+		{
+			name: "failure - multiple encryption failures",
+			refresh: types.UserRefresh{
+				ClientId:     "failed to ecncrypt",
+				RefreshToken: "failed to encrypt",
+				Username:     RealUsername,
+				CreatedAt:    data.CustomTime{Time: time.Now().UTC()},
+				Revoked:      false,
+			},
+			expectedErr: errors.New("failed to encrypt"),
+		},
+		{
+			name: "failure - failed to persist refresh token",
+			refresh: types.UserRefresh{
+				ClientId:     "1234",
+				RefreshToken: "failed to persist",
+				Username:     RealUsername,
+				CreatedAt:    data.CustomTime{Time: time.Now().UTC()},
+				Revoked:      false,
+			},
+			expectedErr: errors.New("failed to insert"),
+		},
+	}
+
+	authservice := NewService(&mockAuthSqlRepository{}, nil, &mockAuthIndexer{}, &mockCryptor{}, &mockS2sTokenProvider{}, &mockS2sCaller{})
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := authservice.PersistRefresh(tc.refresh)
+			if err != nil && !strings.Contains(err.Error(), tc.expectedErr.Error()) {
+				t.Errorf("expected %v, got %v", tc.expectedErr, err)
+			}
+		})
+	}
+
 }

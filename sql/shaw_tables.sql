@@ -30,14 +30,15 @@ CREATE INDEX idx_scope_account_xref ON account_scope(scope_uuid);
 CREATE TABLE refresh (
     uuid CHAR(36) PRIMARY KEY,
     refresh_index VARCHAR(128) NOT NULL,
-    service_name VARCHAR(32) NOT NULL,
+    client_id VARCHAR(128) NOT NULL,
     refresh_token VARCHAR(128) NOT NULL,
-    account_uuid CHAR(36) NOT NULL,
+    username VARCHAR(128) NOT NULL,
+    username_index VARCHAR(128) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     revoked BOOLEAN NOT NULL
 );
-CREATE UNIQUE INDEX idx_refreshindex ON refresh(refresh_index);
-CREATE INDEX idx_refresh_sevice_name ON refresh(service_name);
+CREATE UNIQUE INDEX idx_refresh_index ON refresh(refresh_index);
+CREATE UNIQUE INDEX idx_refresh_username ON refresh(username_index);
 
 -- password history table
 CREATE TABLE password_history (

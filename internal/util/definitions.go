@@ -1,5 +1,7 @@
 package util
 
 const (
-	S2sServiceName = "ran"
+	ServiceName string = "shaw"
+
+	ServiceNameS2s string = "ran"
 )

@@ -2,13 +2,19 @@ package callback
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
+	"shaw/pkg/authentication"
 	"shaw/pkg/oauth"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/tdeslauriers/carapace/pkg/connect"
+	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
+	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
 )
 
@@ -19,7 +25,7 @@ type Handler interface {
 	HandleCallback(w http.ResponseWriter, r *http.Request)
 }
 
-func NewHandler(v jwt.JwtVerifier, u types.UserAuthService, o oauth.Service) Handler {
+func NewHandler(v jwt.Verifier, u types.UserAuthService, o oauth.Service) Handler {
 	return &handler{
 		s2sVerifier: v,
 		userAuth:    u,
@@ -32,7 +38,7 @@ func NewHandler(v jwt.JwtVerifier, u types.UserAuthService, o oauth.Service) Han
 var _ Handler = (*handler)(nil)
 
 type handler struct {
-	s2sVerifier jwt.JwtVerifier
+	s2sVerifier jwt.Verifier
 	userAuth    types.UserAuthService
 	oauth       oauth.Service
 
@@ -88,8 +94,56 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: mint jwt access token and refresh tokens
+	// mint jwt access token
+	accessToken, err := h.userAuth.MintToken(userData.Username, userData.Scopes)
+	if err != nil {
+		h.logger.Error(fmt.Sprintf("failed to mint access token for user name %s", userData.Username), "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "failed to mint jwt access token",
+		}
+		e.SendJsonErr(w)
+		return
+	}
+
+	// access refresh token
+	refresh, err := uuid.NewRandom()
+	if err != nil {
+		h.logger.Error(fmt.Sprintf("failed to generate refresh token for user name %s", userData.Username), "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "failed to generate refresh token",
+		}
+		e.SendJsonErr(w)
+		return
+	}
+
+	// persist refresh token
+	persist := types.UserRefresh{
+		// uuid for refresh token created by persist refresh function
+		// index created by persist refresh function
+		ClientId:     userData.ClientId,
+		RefreshToken: refresh.String(),
+		Username:     userData.Username, // username index created by persist refresh function
+		CreatedAt:    data.CustomTime{Time: time.Unix(accessToken.Claims.IssuedAt, 0).UTC()},
+		Revoked:      false,
+	}
+
+	go func(r types.UserRefresh) {
+		if err := h.userAuth.PersistRefresh(r); err != nil {
+			h.logger.Error(fmt.Sprintf("failed to persist refresh token for user name %s", userData.Username), "err", err.Error())
+		}
+	}(persist)
+
+	// TODO id token
+
+	authz := provider.UserAuthorization{
+		Jti:                accessToken.Claims.Jti,
+		AccessToken:        accessToken.Token,
+		AccessTokenExpires: data.CustomTime{Time: time.Unix(accessToken.Claims.Expires, 0).UTC()},
+		Refresh:            refresh.String(),
+		RefreshExpires:     data.CustomTime{Time: time.Unix(accessToken.Claims.IssuedAt, 0).UTC().Add(authentication.RefreshDuration * time.Hour)},
+	}
 
 	// TODO: return Access Token response to gateway
-
 }

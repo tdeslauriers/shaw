@@ -20,7 +20,7 @@ type Handler interface {
 	HandleRegistration(w http.ResponseWriter, r *http.Request)
 }
 
-func NewHandler(reg Service, v jwt.JwtVerifier) Handler {
+func NewHandler(reg Service, v jwt.Verifier) Handler {
 	return &handler{
 		regService: reg,
 		verifier:   v,
@@ -33,7 +33,7 @@ var _ Handler = (*handler)(nil)
 
 type handler struct {
 	regService Service
-	verifier   jwt.JwtVerifier
+	verifier   jwt.Verifier
 
 	logger *slog.Logger
 }

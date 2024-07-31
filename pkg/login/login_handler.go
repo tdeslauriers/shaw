@@ -22,11 +22,11 @@ type Handler interface {
 	HandleLogin(w http.ResponseWriter, r *http.Request)
 }
 
-func NewHandler(user types.UserAuthService, oauthFlow oauth.Service, verifier jwt.JwtVerifier) Handler {
+func NewHandler(u types.UserAuthService, o oauth.Service, v jwt.Verifier) Handler {
 	return &handler{
-		auth:        user,
-		oauth:       oauthFlow,
-		s2sVerifier: verifier,
+		auth:        u,
+		oauth:       o,
+		s2sVerifier: v,
 
 		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentLogin)),
 	}
@@ -37,7 +37,7 @@ var _ Handler = (*handler)(nil)
 type handler struct {
 	auth        types.UserAuthService
 	oauth       oauth.Service
-	s2sVerifier jwt.JwtVerifier
+	s2sVerifier jwt.Verifier
 
 	logger *slog.Logger
 }

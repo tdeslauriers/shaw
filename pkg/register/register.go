@@ -297,7 +297,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 
 	// wait for user to be saved, otherwise no need to continue.
 	// get s2s service endpoint token to retreive scopes
-	s2stoken, err := s.s2sToken.GetServiceToken(util.S2sServiceName)
+	s2stoken, err := s.s2sToken.GetServiceToken(util.ServiceNameS2s)
 	if err != nil {
 		s.logger.Error("failed to get s2s token to retreive scopes", "err", err.Error())
 		return errors.New(BuildUserErrMsg)

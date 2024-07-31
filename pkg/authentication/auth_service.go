@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"shaw/internal/util"
+	"strings"
 	"sync"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
@@ -17,8 +20,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const (
+	AccessTokenDuration time.Duration = 15 // minutes
+	RefreshDuration     time.Duration = 12 // hours
+	IdTokenDuration     time.Duration = 60 // minutes
+)
+
 // NewService creates an implementation of the user authentication service in the carapace session package.
-func NewService(db data.SqlRepository, s jwt.JwtSigner, i data.Indexer, c data.Cryptor, p provider.S2sTokenProvider, call connect.S2sCaller) types.UserAuthService {
+func NewService(db data.SqlRepository, s jwt.Signer, i data.Indexer, c data.Cryptor, p provider.S2sTokenProvider, call connect.S2sCaller) types.UserAuthService {
 	return &userAuthService{
 		db:               db,
 		mint:             s,
@@ -35,7 +44,7 @@ var _ types.UserAuthService = (*userAuthService)(nil)
 
 type userAuthService struct {
 	db               data.SqlRepository
-	mint             jwt.JwtSigner
+	mint             jwt.Signer
 	indexer          data.Indexer
 	cryptor          data.Cryptor
 	s2sTokenProvider provider.S2sTokenProvider
@@ -184,7 +193,7 @@ func (s *userAuthService) getAllScopes(wg *sync.WaitGroup, scopes *[]types.Scope
 	defer wg.Done()
 
 	// get s2s service endpoint token to retreive scopes
-	s2stoken, err := s.s2sTokenProvider.GetServiceToken(util.S2sServiceName)
+	s2stoken, err := s.s2sTokenProvider.GetServiceToken(util.ServiceNameS2s)
 	if err != nil {
 		s.logger.Error("failed to get s2s token: %v", "err", err.Error())
 		return
@@ -200,12 +209,46 @@ func (s *userAuthService) getAllScopes(wg *sync.WaitGroup, scopes *[]types.Scope
 	*scopes = s2sScopes
 }
 
-// MintAuthToken mints the users access token token for user authentication service.
+// MintToken mints the users access token token for user authentication service.
 // It assumes that the user's credentials have been validated.
-func (s *userAuthService) MintToken(subject, service string) (*jwt.JwtToken, error) {
+func (s *userAuthService) MintToken(subject, scopes string) (*jwt.Token, error) {
 
-	// TDOO: implement mint authz token
-	return nil, nil
+	// jwt header
+	header := jwt.Header{
+		Alg: "HS256",
+		Typ: jwt.TokenType,
+	}
+
+	// set up jwt claims fields
+	jti, err := uuid.NewRandom()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate jwt jti uuid: %v", err)
+	}
+
+	now := time.Now().UTC()
+
+	claims := jwt.Claims{
+		Jti:       jti.String(),
+		Issuer:    util.ServiceName,
+		Subject:   subject,
+		Audience:  types.BuildAudiences(scopes),
+		IssuedAt:  now.Unix(),
+		NotBefore: now.Unix(),
+		Expires:   now.Add(AccessTokenDuration * time.Minute).Unix(),
+		Scopes:    scopes,
+	}
+
+	jot := jwt.Token{
+		Header: header,
+		Claims: claims,
+	}
+
+	// sign jwt token
+	if err := s.mint.Mint(&jot); err != nil {
+		return nil, fmt.Errorf("failed to sign access token jwt: %v", err)
+	}
+
+	return &jot, nil
 }
 
 // GetRefreshToken retreives a refresh token by recreating the blind index, selecting, and then decrypting the record.
@@ -216,9 +259,129 @@ func (s *userAuthService) GetRefreshToken(refreshToken string) (*types.UserRefre
 }
 
 // PersistRefresh persists the refresh token for user authentication service.
-// It encrypts the refresh token and creates the blind index before persisting it.
+// It encrypts the refresh token and creates the primary key and blind index before persisting it.
 func (s *userAuthService) PersistRefresh(r types.UserRefresh) error {
 
-	// TDOO: implement persist refresh
+	var (
+		wgRecord          sync.WaitGroup
+		id                uuid.UUID
+		refreshIndex      string
+		encryptedClientId string
+		encryptedRefresh  string
+		encryptedUsername string
+		usernameIndex     string
+	)
+	errChan := make(chan error, 6)
+
+	// create primary key
+	wgRecord.Add(1)
+	go func(id *uuid.UUID, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		i, err := uuid.NewRandom()
+		if err != nil {
+			ch <- fmt.Errorf("failed to generate uuid for refresh token: %v", err)
+			return
+		}
+		*id = i
+	}(&id, errChan, &wgRecord)
+
+	// create blind index
+	wgRecord.Add(1)
+	go func(index *string, refresh string, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		ndx, err := s.indexer.ObtainBlindIndex(refresh)
+		if err != nil {
+			ch <- fmt.Errorf("failed to generate blind index for refresh token xxxxxx-%s: %v", refresh[:len(refresh)-6], err)
+			return
+		}
+		*index = ndx
+	}(&refreshIndex, r.RefreshToken, errChan, &wgRecord)
+
+	// encrypt client id
+	wgRecord.Add(1)
+	go func(clientId string, encryptedClientId *string, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		encrypted, err := s.cryptor.EncryptServiceData(clientId)
+		if err != nil {
+			ch <- fmt.Errorf("failed to encrypt client id %s: %v", clientId, err)
+			return
+		}
+		*encryptedClientId = encrypted
+	}(r.ClientId, &encryptedClientId, errChan, &wgRecord)
+
+	// create encrypt refresh token
+	wgRecord.Add(1)
+	go func(refreshToken string, encryptedRefresh *string, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		encrypted, err := s.cryptor.EncryptServiceData(refreshToken)
+		if err != nil {
+			ch <- fmt.Errorf("failed to encrypt refresh token xxxxxx-%s: %v", refreshToken[:len(refreshToken)-6], err)
+			return
+		}
+		*encryptedRefresh = encrypted
+	}(r.RefreshToken, &encryptedRefresh, errChan, &wgRecord)
+
+	// encrypt username
+	wgRecord.Add(1)
+	go func(username string, encryptedUsername *string, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		encrypted, err := s.cryptor.EncryptServiceData(username)
+		if err != nil {
+			ch <- fmt.Errorf("failed to encrypt username %s: %v", username, err)
+			return
+		}
+		*encryptedUsername = encrypted
+	}(r.Username, &encryptedUsername, errChan, &wgRecord)
+
+	// create username index
+	wgRecord.Add(1)
+	go func(username string, index *string, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		ndx, err := s.indexer.ObtainBlindIndex(username)
+		if err != nil {
+			ch <- fmt.Errorf("failed to generate blind index for username %s: %v", username, err)
+			return
+		}
+		*index = ndx
+	}(r.Username, &usernameIndex, errChan, &wgRecord)
+
+	// wait for all go routines to finish
+	wgRecord.Wait()
+	close(errChan)
+
+	// consolidate errors
+	if len(errChan) > 0 {
+		var builder strings.Builder
+		count := 0
+		for e := range errChan {
+			builder.WriteString(e.Error())
+			if count < len(errChan)-1 {
+				builder.WriteString("; ")
+			}
+			count++
+		}
+		return fmt.Errorf("failed to persist refresh token: %s", builder.String())
+	}
+
+	// update refresh struct
+	r.Uuid = id.String()
+	r.RefreshIndex = refreshIndex
+	r.ClientId = encryptedClientId
+	r.RefreshToken = encryptedRefresh
+	r.Username = encryptedUsername
+	r.UsernameIndex = usernameIndex
+
+	// insert record
+	qry := `INSERT INTO refresh_token (uuid, refresh_index, client_id, refresh_token, username, username_index, created_at, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	if err := s.db.InsertRecord(qry, r); err != nil {
+		return fmt.Errorf("failed to insert refresh token record: %v", err)
+	}
+
 	return nil
 }
