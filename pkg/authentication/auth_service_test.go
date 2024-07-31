@@ -61,7 +61,7 @@ func (c *mockCryptor) DecryptServiceData(data string) (string, error) {
 		return "", errors.New("failed to decrypt")
 	}
 
-	return strings.TrimPrefix(data, "encrypted+"), nil
+	return strings.TrimPrefix(data, "encrypted-"), nil
 }
 
 type mockAuthSqlRepository struct{}

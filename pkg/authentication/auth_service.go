@@ -293,7 +293,7 @@ func (s *userAuthService) PersistRefresh(r types.UserRefresh) error {
 
 		ndx, err := s.indexer.ObtainBlindIndex(refresh)
 		if err != nil {
-			ch <- fmt.Errorf("failed to generate blind index for refresh token xxxxxx-%s: %v", refresh[:len(refresh)-6], err)
+			ch <- fmt.Errorf("failed to generate blind index for refresh token xxxxxx-%s: %v", refresh[len(refresh)-6:], err)
 			return
 		}
 		*index = ndx
@@ -319,7 +319,7 @@ func (s *userAuthService) PersistRefresh(r types.UserRefresh) error {
 
 		encrypted, err := s.cryptor.EncryptServiceData(refreshToken)
 		if err != nil {
-			ch <- fmt.Errorf("failed to encrypt refresh token xxxxxx-%s: %v", refreshToken[:len(refreshToken)-6], err)
+			ch <- fmt.Errorf("failed to encrypt refresh token xxxxxx-%s: %v", refreshToken[len(refreshToken)-6:], err)
 			return
 		}
 		*encryptedRefresh = encrypted
