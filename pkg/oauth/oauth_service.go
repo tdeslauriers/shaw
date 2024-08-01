@@ -40,9 +40,9 @@ type OauthService interface {
 	// IsValidClient validates the client and user are linked, enabled, not expired, not locked
 	IsValidClient(clientid, username string) (bool, error)
 
-	// GenerateAuthCode generates an auth code for and persists it to the db along with the user's scopes, the client, and the redirect url,
-	// associating it with the user so that it can be used to mint a token on callback from the client
-	GenerateAuthCode(username, client, redirect string, scopes []types.Scope) (string, error)
+	// GenerateAuthCode generates an auth code for and persists it to the db along with the user's scopes, nonce, the client, and the redirect url,
+	// associating it with the user so that it can be used to mint an access token and Id token on callback from the client
+	GenerateAuthCode(username, nonce, client, redirect string, scopes []types.Scope) (string, error)
 
 	// RetrieveUserData retrieves the user data associated with the auth code, if it exists and is valid.
 	// If any of the data provided in the AccessTokenCmd is invalid, an error is returned.
@@ -190,13 +190,15 @@ func (s *service) IsValidClient(clientId, username string) (bool, error) {
 }
 
 // GenerateAuthCode implements the OauthFlowService interface
-func (s *service) GenerateAuthCode(username, clientId, redirect string, scopes []types.Scope) (string, error) {
+func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, scopes []types.Scope) (string, error) {
 
 	// check for empty fields: redundant check, but good practice
-	if username == "" || clientId == "" || redirect == "" || len(scopes) == 0 {
+	if username == "" || nonce == "" || clientId == "" || redirect == "" || len(scopes) == 0 {
 		switch {
 		case username == "":
 			return "", errors.New("failed to generate auth code: username is empty")
+		case nonce == "":
+			return "", errors.New("failed to generate auth code: nonce is empty")
 		case clientId == "":
 			return "", errors.New("failed to generate auth code: client id is empty")
 		case redirect == "":
@@ -213,11 +215,12 @@ func (s *service) GenerateAuthCode(username, clientId, redirect string, scopes [
 		authCode          uuid.UUID
 		authCodeIndex     string
 		encryptedAuthCode string
+		encryptedNonce    string
 		encryptedClientId string
 		encryptedRedirect string
 		encryptedScopes   string
 	)
-	errChan := make(chan error, 6)
+	errChan := make(chan error, 7)
 
 	// get user uuid from account table
 	wg.Add(1)
@@ -237,7 +240,7 @@ func (s *service) GenerateAuthCode(username, clientId, redirect string, scopes [
 	}(username, &userId, errChan, &wg)
 
 	// build auth code record
-	// generate auth code id
+	// generate auth code primary key/id
 	wg.Add(1)
 	go func(authCodeId *uuid.UUID, errs chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
@@ -276,6 +279,19 @@ func (s *service) GenerateAuthCode(username, clientId, redirect string, scopes [
 		}
 		*encryptedAuthCode = encrypted
 	}(&authCode, &authCodeIndex, &encryptedAuthCode, errChan, &wg)
+
+	// encrypt nonce
+	wg.Add(1)
+	go func(nonce string, encryptedNonce *string, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		encrypted, err := s.cipher.EncryptServiceData(nonce)
+		if err != nil {
+			errs <- fmt.Errorf("failed to encrypt nonce: %v", err)
+			return
+		}
+		*encryptedNonce = encrypted
+	}(nonce, &encryptedNonce, errChan, &wg)
 
 	// encrypt client id
 	wg.Add(1)
@@ -352,6 +368,7 @@ func (s *service) GenerateAuthCode(username, clientId, redirect string, scopes [
 		Id:            authCodeId.String(),
 		AuthCodeIndex: authCodeIndex,
 		Authcode:      encryptedAuthCode,
+		Nonce:         encryptedNonce,
 		ClientId:      encryptedClientId,
 		RedirectUrl:   encryptedRedirect,
 		Scopes:        encryptedScopes,
@@ -444,9 +461,12 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 				a.enabled,
 				a.account_expired,
 				a.account_locked,
+				ac.authcode,
+				ac.nonce,
 				ac.client_id,
 				ac.redirect_url,
 				ac.scopes,
+				ac.created_at,
 				ac.claimed, 
 				ac.revoked
 			FROM authcode ac 
@@ -507,11 +527,12 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 		decryptedLastname    string
 		decryptedBirthdate   string
 		decryptedAuthcode    string
+		decryptedNonce       string
 		decryptedClientId    string
 		decryptedRedirectUrl string
 		decryptedScopes      string
 
-		errChan = make(chan error, 3)
+		errChan = make(chan error, 9)
 	)
 
 	// decrypt username
@@ -578,6 +599,19 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 		}
 		*plaintext = decrypted
 	}(user.Authcode, &decryptedAuthcode, errChan, &wgDecrypt)
+
+	// decrypt nonce
+	wgDecrypt.Add(1)
+	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		decrypted, err := s.cipher.DecryptServiceData(encrypted)
+		if err != nil {
+			errs <- fmt.Errorf("%s: %v", ErrDecryptNonce, err)
+			return
+		}
+		*plaintext = decrypted
+	}(user.Nonce, &decryptedNonce, errChan, &wgDecrypt)
 
 	// decrypt client id
 	wgDecrypt.Add(1)
@@ -663,6 +697,7 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 		AccountLocked:  user.AccountLocked,
 
 		Authcode:          decryptedAuthcode,
+		Nonce:             decryptedNonce,
 		ClientId:          decryptedClientId,
 		RedirectUrl:       decryptedRedirectUrl,
 		Scopes:            decryptedScopes,

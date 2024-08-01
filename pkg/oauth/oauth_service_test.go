@@ -17,6 +17,7 @@ import (
 const (
 	RealUserId   = "0505e360-022a-4b53-8e1f-2cb3cbf897fb"
 	RealUsername = "darth.vader@empire.com"
+	RealNonce    = "real-nonce"
 	RealClient   = "real-client-uuid"
 	RealRedirect = "https://real-redirect-url.com"
 
@@ -500,6 +501,7 @@ func TestGenerateAuthCode(t *testing.T) {
 	testCases := []struct {
 		name     string
 		username string
+		nonce    string
 		clientId string
 		redirect string
 		scopes   []types.Scope
@@ -508,6 +510,7 @@ func TestGenerateAuthCode(t *testing.T) {
 		{
 			name:     "valid auth code generation",
 			username: RealUsername,
+			nonce:    RealNonce,
 			clientId: RealClient,
 			redirect: RealRedirect,
 			scopes:   TestScopes,
@@ -516,6 +519,7 @@ func TestGenerateAuthCode(t *testing.T) {
 		{
 			name:     "invalid user",
 			username: "invalid-username@invalid.domain",
+			nonce:    RealNonce,
 			clientId: RealClient,
 			redirect: RealRedirect,
 			scopes:   TestScopes,
@@ -524,14 +528,25 @@ func TestGenerateAuthCode(t *testing.T) {
 		{
 			name:     "empty user",
 			username: "",
+			nonce:    RealNonce,
 			clientId: RealClient,
 			redirect: RealRedirect,
 			scopes:   TestScopes,
 			err:      errors.New("failed to generate auth code: username is empty"),
 		},
 		{
+			name:     "empty nonce",
+			username: RealUsername,
+			nonce:    "",
+			clientId: RealClient,
+			redirect: RealRedirect,
+			scopes:   TestScopes,
+			err:      errors.New("failed to generate auth code: nonce is empty"),
+		},
+		{
 			name:     "empty client",
 			username: RealUsername,
+			nonce:    RealNonce,
 			clientId: "",
 			redirect: RealRedirect,
 			scopes:   TestScopes,
@@ -540,6 +555,7 @@ func TestGenerateAuthCode(t *testing.T) {
 		{
 			name:     "empty redirect",
 			username: RealUsername,
+			nonce:    RealNonce,
 			clientId: RealClient,
 			redirect: "",
 			scopes:   TestScopes,
@@ -548,6 +564,7 @@ func TestGenerateAuthCode(t *testing.T) {
 		{
 			name:     "empty scopes",
 			username: RealUsername,
+			nonce:    RealNonce,
 			clientId: RealClient,
 			redirect: RealRedirect,
 			scopes:   []types.Scope{},
@@ -556,6 +573,7 @@ func TestGenerateAuthCode(t *testing.T) {
 		{
 			name:     "nil scopes",
 			username: RealUsername,
+			nonce:    RealNonce,
 			clientId: RealClient,
 			redirect: RealRedirect,
 			scopes:   nil,
@@ -564,6 +582,7 @@ func TestGenerateAuthCode(t *testing.T) {
 		{
 			name:     "failed to generate user index",
 			username: "index-failed",
+			nonce:    RealNonce,
 			clientId: RealClient,
 			redirect: RealRedirect,
 			scopes:   TestScopes,
@@ -572,6 +591,7 @@ func TestGenerateAuthCode(t *testing.T) {
 		{
 			name:     "failed to encrypt client id", // represents a failure to encrypt any value in record generation process
 			username: RealUsername,
+			nonce:    RealNonce,
 			clientId: "failed-encryption",
 			redirect: RealRedirect,
 			scopes:   TestScopes,
@@ -580,6 +600,7 @@ func TestGenerateAuthCode(t *testing.T) {
 		{
 			name:     "failed to insert auth code record",
 			username: "persistance-failure",
+			nonce:    RealNonce,
 			clientId: RealClient,
 			redirect: RealRedirect,
 			scopes:   TestScopes,
@@ -592,7 +613,7 @@ func TestGenerateAuthCode(t *testing.T) {
 
 			oauthSvc := NewService(&mockSqlRepository{}, &mockCryptor{}, &mockIndexer{})
 
-			code, err := oauthSvc.GenerateAuthCode(tc.username, tc.clientId, tc.redirect, tc.scopes)
+			code, err := oauthSvc.GenerateAuthCode(tc.username, tc.nonce, tc.clientId, tc.redirect, tc.scopes)
 			if err != nil && !strings.Contains(err.Error(), tc.err.Error()) {
 				t.Errorf("expected %v, got %v", tc.err, err)
 			}
@@ -627,6 +648,7 @@ func TestRetrieveUserData(t *testing.T) {
 				AccountExpired:  false,
 				AccountLocked:   false,
 				Authcode:        "valid-auth-code-value",
+				Nonce:           RealNonce,
 				ClientId:        RealClient,
 				RedirectUrl:     RealRedirect,
 				Scopes:          RealScopes,

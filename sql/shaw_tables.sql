@@ -55,6 +55,7 @@ CREATE TABLE authcode (
     uuid CHAR(36) PRIMARY KEY,
     authcode_index VARCHAR(128) NOT NULL,
     authcode VARCHAR(128) NOT NULL,
+    nonce VARCHAR(128) NOT NULL,
     client_uuid VARCHAR(128) NOT NULL,
     redirect_url VARCHAR(2048) NOT NULL,
     scopes VARCHAR(1024) NOT NULL,

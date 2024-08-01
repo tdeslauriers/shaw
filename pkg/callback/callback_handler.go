@@ -18,6 +18,10 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/session/types"
 )
 
+const (
+	ErrMintToken string = "failed to mint jwt access token"
+)
+
 // service scopes required
 var allowed []string = []string{"w:shaw:*"}
 
@@ -94,19 +98,76 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// mint jwt access token
-	accessToken, err := h.userAuth.MintToken(userData.Username, userData.Scopes)
+	// set up jwt claims fields
+	jti, err := uuid.NewRandom()
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("failed to mint access token for user name %s", userData.Username), "err", err.Error())
+		h.logger.Error("failed to generate jti for access token", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
-			Message:    "failed to mint jwt access token",
+			Message:    ErrMintToken,
 		}
 		e.SendJsonErr(w)
 		return
 	}
 
-	// access refresh token
+	now := time.Now().UTC()
+
+	// build access token claims
+	accessClaims := jwt.Claims{
+		Jti:       jti.String(),
+		Issuer:    util.ServiceName,
+		Subject:   userData.Username,
+		Audience:  types.BuildAudiences(userData.Scopes),
+		IssuedAt:  now.Unix(),
+		NotBefore: now.Unix(),
+		Expires:   now.Add(authentication.AccessTokenDuration * time.Minute).Unix(),
+		Scopes:    userData.Scopes,
+	}
+
+	// mint jwt access token
+	accessToken, err := h.userAuth.MintToken(accessClaims)
+	if err != nil {
+		h.logger.Error(fmt.Sprintf("failed to mint access token for user name %s", userData.Username), "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    ErrMintToken,
+		}
+		e.SendJsonErr(w)
+		return
+	}
+
+	// build id token claims
+	idClaims := jwt.Claims{
+		Issuer:     util.ServiceName,
+		Subject:    userData.Username,
+		Audience:   []string{userData.ClientId}, // different from access token which si aimed at services
+		IssuedAt:   now.Unix(),
+		NotBefore:  now.Unix(),
+		Expires:    now.Add(authentication.IdTokenDuration * time.Minute).Unix(),
+		Nonce:      userData.Nonce,
+		Email:      userData.Username,
+		Name:       fmt.Sprintf("%s %s", userData.Firstname, userData.Lastname),
+		GivenName:  userData.Firstname,
+		FamilyName: userData.Lastname,
+	}
+
+	if userData.BirthDate != "" {
+		idClaims.Birthdate = userData.BirthDate
+	}
+
+	// mint jwt id token
+	idToken, err := h.userAuth.MintToken(idClaims)
+	if err != nil {
+		h.logger.Error(fmt.Sprintf("failed to mint id token for user name %s", userData.Username), "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "failed to mint id token",
+		}
+		e.SendJsonErr(w)
+		return
+	}
+
+	// refresh token
 	refresh, err := uuid.NewRandom()
 	if err != nil {
 		h.logger.Error(fmt.Sprintf("failed to generate refresh token for user name %s", userData.Username), "err", err.Error())
@@ -135,15 +196,26 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}(persist)
 
-	// TODO id token
-
 	authz := provider.UserAuthorization{
 		Jti:                accessToken.Claims.Jti,
 		AccessToken:        accessToken.Token,
+		TokenType:          "Bearer",
 		AccessTokenExpires: data.CustomTime{Time: time.Unix(accessToken.Claims.Expires, 0).UTC()},
 		Refresh:            refresh.String(),
 		RefreshExpires:     data.CustomTime{Time: time.Unix(accessToken.Claims.IssuedAt, 0).UTC().Add(authentication.RefreshDuration * time.Hour)},
+		IdToken:            idToken.Token,
+		IdTokenExpires:     data.CustomTime{Time: time.Unix(idToken.Claims.Expires, 0).UTC()},
 	}
 
-	// TODO: return Access Token response to gateway
+	// return Access Token response to gateway
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(authz); err != nil {
+		h.logger.Error(fmt.Sprintf("failed to encode access token response for user (%s) callback", userData.Username), "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "failed to encode access token response due to internal service error",
+		}
+		e.SendJsonErr(w)
+		return
+	}
 }

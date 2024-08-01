@@ -34,6 +34,7 @@ const (
 	ErrDecryptLastname    = "failed to decrypt last name"
 	ErrDecryptBirthdate   = "failed to decrypt birthdate"
 	ErrDecryptAuthcode    = "failed to decrypt authcode"
+	ErrDecryptNonce       = "failed to decrypt nonce"
 	ErrDecryptClientid    = "failed to decrypt client id"
 	ErrDecryptRedirecturl = "failed to decrypt redirect url"
 	ErrDecryptScopes      = "failed to decrypt scopes"
@@ -89,6 +90,7 @@ type AuthCode struct {
 	Id            string `json:"uuid" db:"uuid"`
 	AuthCodeIndex string `json:"authcode_index" db:"authcode_index"`
 	Authcode      string `json:"authcode" db:"authcode"`
+	Nonce         string `json:"nonce" db:"nonce"`
 	ClientId      string `json:"client_uuid" db:"client_uuid"`
 	RedirectUrl   string `json:"redirect_url" db:"redirect_url"`
 	Scopes        string `json:"scopes" db:"scopes"`
@@ -119,6 +121,7 @@ type OauthUserData struct {
 
 	// authcode table
 	Authcode          string          `json:"authcode" db:"authcode"`
+	Nonce             string          `json:"nonce" db:"nonce"`
 	ClientId          string          `json:"client_id" db:"client_id"`
 	RedirectUrl       string          `json:"redirect_url" db:"redirect_url"`
 	Scopes            string          `json:"scopes" db:"scopes"`

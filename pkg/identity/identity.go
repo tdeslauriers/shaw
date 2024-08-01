@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"shaw/internal/util"
 	"shaw/pkg/authentication"
+	"shaw/pkg/callback"
 	"shaw/pkg/login"
 	"shaw/pkg/oauth"
 	"shaw/pkg/register"
@@ -211,8 +212,7 @@ func (i *identity) Run() error {
 
 	loginHandler := login.NewHandler(i.authService, i.oathService, i.s2sVerifier)
 
-	// oauth callback handler
-	// TODO: implement oauth callback handler
+	callbackHandler := callback.NewHandler(i.s2sVerifier, i.authService, i.oathService)
 
 	// refresh handler
 	// TODO: implement refresh handler
@@ -224,6 +224,7 @@ func (i *identity) Run() error {
 	mux.HandleFunc("/health", diagnostics.HealthCheckHandler)
 	mux.HandleFunc("/register", registerHandler.HandleRegistration)
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
+	mux.HandleFunc("/callback", callbackHandler.HandleCallback)
 
 	identityServer := &connect.TlsServer{
 		Addr:      i.config.ServicePort,

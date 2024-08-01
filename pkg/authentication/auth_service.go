@@ -211,31 +211,12 @@ func (s *userAuthService) getAllScopes(wg *sync.WaitGroup, scopes *[]types.Scope
 
 // MintToken mints the users access token token for user authentication service.
 // It assumes that the user's credentials have been validated.
-func (s *userAuthService) MintToken(subject, scopes string) (*jwt.Token, error) {
+func (s *userAuthService) MintToken(claims jwt.Claims) (*jwt.Token, error) {
 
 	// jwt header
 	header := jwt.Header{
 		Alg: "HS256",
 		Typ: jwt.TokenType,
-	}
-
-	// set up jwt claims fields
-	jti, err := uuid.NewRandom()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate jwt jti uuid: %v", err)
-	}
-
-	now := time.Now().UTC()
-
-	claims := jwt.Claims{
-		Jti:       jti.String(),
-		Issuer:    util.ServiceName,
-		Subject:   subject,
-		Audience:  types.BuildAudiences(scopes),
-		IssuedAt:  now.Unix(),
-		NotBefore: now.Unix(),
-		Expires:   now.Add(AccessTokenDuration * time.Minute).Unix(),
-		Scopes:    scopes,
 	}
 
 	jot := jwt.Token{
@@ -245,7 +226,7 @@ func (s *userAuthService) MintToken(subject, scopes string) (*jwt.Token, error) 
 
 	// sign jwt token
 	if err := s.mint.Mint(&jot); err != nil {
-		return nil, fmt.Errorf("failed to sign access token jwt: %v", err)
+		return nil, fmt.Errorf("failed to sign jwt: %v", err)
 	}
 
 	return &jot, nil

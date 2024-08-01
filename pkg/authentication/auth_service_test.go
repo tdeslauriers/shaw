@@ -208,7 +208,7 @@ func (s *mockSigner) Mint(token *jwt.Token) error {
 
 		return nil
 	} else {
-		return errors.New("failed ot sign access token jwt")
+		return errors.New("failed to create jwt signature")
 	}
 
 }
@@ -408,11 +408,22 @@ func TestMintToken(t *testing.T) {
 
 	testCases := []struct {
 		name        string
+		claims      jwt.Claims
 		jwt         *jwt.Token
 		expectedErr error
 	}{
 		{
 			name: "success - signed token",
+			claims: jwt.Claims{
+				Jti:       "1234",
+				Issuer:    util.ServiceName,
+				Subject:   RealUsername,
+				Audience:  types.BuildAudiences(RealScopes),
+				IssuedAt:  time.Now().UTC().Unix(),
+				NotBefore: time.Now().UTC().Unix(),
+				Expires:   time.Now().Add(AccessTokenDuration * time.Minute).Unix(),
+				Scopes:    RealScopes,
+			},
 			jwt: &jwt.Token{
 				Header: jwt.Header{
 					Alg: "HS256",
@@ -433,23 +444,18 @@ func TestMintToken(t *testing.T) {
 		},
 		{
 			name: "failure - triggering jwt.Mint error",
-			jwt: &jwt.Token{
-				Header: jwt.Header{
-					Alg: "HS256",
-					Typ: jwt.TokenType,
-				},
-				Claims: jwt.Claims{
-					Jti:       "1234",
-					Issuer:    util.ServiceName,
-					Subject:   "trigger error",
-					Audience:  types.BuildAudiences(RealScopes),
-					IssuedAt:  time.Now().UTC().Unix(),
-					NotBefore: time.Now().UTC().Unix(),
-					Expires:   time.Now().Add(AccessTokenDuration * time.Minute).Unix(),
-					Scopes:    RealScopes,
-				},
+			claims: jwt.Claims{
+				Jti:       "1234",
+				Issuer:    util.ServiceName,
+				Subject:   "trigger error",
+				Audience:  types.BuildAudiences(RealScopes),
+				IssuedAt:  time.Now().UTC().Unix(),
+				NotBefore: time.Now().UTC().Unix(),
+				Expires:   time.Now().Add(AccessTokenDuration * time.Minute).Unix(),
+				Scopes:    RealScopes,
 			},
-			expectedErr: errors.New("failed to sign access token jwt"),
+			jwt:         nil,
+			expectedErr: errors.New("failed to sign jwt"),
 		},
 	}
 
@@ -457,10 +463,12 @@ func TestMintToken(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			jot, err := authservice.MintToken(RealUsername, RealScopes)
+			jot, err := authservice.MintToken(tc.claims)
+
 			if err != nil && !strings.Contains(err.Error(), tc.expectedErr.Error()) {
 				t.Errorf("expected %v, got %v", tc.expectedErr, err)
-			} else {
+			}
+			if err == nil {
 
 				if jot.BaseString == "" {
 					t.Errorf("expected base string to be populated")
