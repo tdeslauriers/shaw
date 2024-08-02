@@ -421,7 +421,7 @@ func TestIsValidRedirect(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			// create a new clientRegistration with a mockSqlRepository
-			cr := NewService(&mockSqlRepository{}, &mockCryptor{}, &mockIndexer{})
+			cr := NewService(&mockSqlRepository{}, &mockIndexer{}, &mockCryptor{})
 
 			valid, err := cr.IsValidRedirect(tc.clientId, tc.redirect)
 			if valid != tc.valid {
@@ -484,7 +484,7 @@ func TestIsValidClient(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			// create a new clientRegistration with a mockSqlRepository
-			cr := NewService(&mockSqlRepository{}, nil, &mockIndexer{})
+			cr := NewService(&mockSqlRepository{}, &mockIndexer{}, nil)
 
 			valid, err := cr.IsValidClient(tc.client, tc.username)
 			if valid != tc.valid {
@@ -611,7 +611,7 @@ func TestGenerateAuthCode(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 
-			oauthSvc := NewService(&mockSqlRepository{}, &mockCryptor{}, &mockIndexer{})
+			oauthSvc := NewService(&mockSqlRepository{}, &mockIndexer{}, &mockCryptor{})
 
 			code, err := oauthSvc.GenerateAuthCode(tc.username, tc.nonce, tc.clientId, tc.redirect, tc.scopes)
 			if err != nil && !strings.Contains(err.Error(), tc.err.Error()) {
@@ -815,7 +815,7 @@ func TestRetrieveUserData(t *testing.T) {
 		},
 	}
 
-	oauthSvc := NewService(&mockSqlRepository{}, &mockCryptor{}, &mockIndexer{})
+	oauthSvc := NewService(&mockSqlRepository{}, &mockIndexer{}, &mockCryptor{})
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
