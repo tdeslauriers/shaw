@@ -626,7 +626,7 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 	}, nil
 }
 
-// decrypt is a helper function to decrypt encrypted data
+// decrypt is a helper function to absract the decryption process for the user data fields
 func (s *service) decrypt(encrypted, errMsg string, plaintext *string, ch chan error, wg *sync.WaitGroup) {
 
 	defer wg.Done()
