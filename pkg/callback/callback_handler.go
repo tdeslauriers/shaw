@@ -196,6 +196,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}(persist)
 
+	// return access, refresh, and id tokens to gateway
 	authz := provider.UserAuthorization{
 		Jti:                accessToken.Claims.Jti,
 		AccessToken:        accessToken.Token,
@@ -207,7 +208,6 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		IdTokenExpires:     data.CustomTime{Time: time.Unix(idToken.Claims.Expires, 0).UTC()},
 	}
 
-	// return Access Token response to gateway
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(authz); err != nil {
 		h.logger.Error(fmt.Sprintf("failed to encode access token response for user (%s) callback", userData.Username), "err", err.Error())
