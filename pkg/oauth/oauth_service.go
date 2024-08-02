@@ -535,39 +535,30 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 		errChan = make(chan error, 9)
 	)
 
-	// decrypt username
 	wg.Add(1)
 	go s.decrypt(user.Username, ErrDecryptUsername, &decryptedUsername, errChan, &wg)
 
-	// decrypt first name
 	wg.Add(1)
 	go s.decrypt(user.Firstname, ErrDecryptFirstname, &decryptedFirstname, errChan, &wg)
 
-	// decrypt last name
 	wg.Add(1)
 	go s.decrypt(user.Lastname, ErrDecryptLastname, &decryptedLastname, errChan, &wg)
 
-	// decrypt birthdate
 	wg.Add(1)
 	go s.decrypt(user.BirthDate, ErrDecryptBirthdate, &decryptedBirthdate, errChan, &wg)
 
-	// decrypt authcode
 	wg.Add(1)
 	go s.decrypt(user.Authcode, ErrDecryptAuthcode, &decryptedAuthcode, errChan, &wg)
 
-	// decrypt nonce
 	wg.Add(1)
 	go s.decrypt(user.Nonce, ErrDecryptNonce, &decryptedNonce, errChan, &wg)
 
-	// decrypt client id
 	wg.Add(1)
 	go s.decrypt(user.ClientId, ErrDecryptClientid, &decryptedClientId, errChan, &wg)
 
-	// decrypt redirect url
 	wg.Add(1)
 	go s.decrypt(user.RedirectUrl, ErrDecryptRedirecturl, &decryptedRedirectUrl, errChan, &wg)
 
-	// decrypt scopes
 	wg.Add(1)
 	go s.decrypt(user.Scopes, ErrDecryptScopes, &decryptedScopes, errChan, &wg)
 
