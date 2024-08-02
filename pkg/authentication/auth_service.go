@@ -226,7 +226,7 @@ func (s *userAuthService) MintToken(claims jwt.Claims) (*jwt.Token, error) {
 
 	// sign jwt token
 	if err := s.mint.Mint(&jot); err != nil {
-		return nil, fmt.Errorf("failed to sign jwt: %v", err)
+		return nil, fmt.Errorf("failed to sign token jwt: %v", err)
 	}
 
 	return &jot, nil

@@ -520,7 +520,7 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 
 	// decrypt data
 	var (
-		wgDecrypt sync.WaitGroup
+		wg sync.WaitGroup
 
 		decryptedUsername    string
 		decryptedFirstname   string
@@ -536,124 +536,43 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 	)
 
 	// decrypt username
-	wgDecrypt.Add(1)
-	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
-		defer wg.Done()
-
-		decrypted, err := s.cipher.DecryptServiceData(encrypted)
-		if err != nil {
-			errs <- fmt.Errorf("%s: %v", ErrDecryptUsername, err)
-			return
-		}
-		*plaintext = decrypted
-	}(user.Username, &decryptedUsername, errChan, &wgDecrypt)
+	wg.Add(1)
+	go s.decrypt(user.Username, ErrDecryptUsername, &decryptedUsername, errChan, &wg)
 
 	// decrypt first name
-	wgDecrypt.Add(1)
-	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
-		defer wg.Done()
-
-		decrypted, err := s.cipher.DecryptServiceData(encrypted)
-		if err != nil {
-			errs <- fmt.Errorf("%s: %v", ErrDecryptFirstname, err)
-			return
-		}
-		*plaintext = decrypted
-	}(user.Firstname, &decryptedFirstname, errChan, &wgDecrypt)
+	wg.Add(1)
+	go s.decrypt(user.Firstname, ErrDecryptFirstname, &decryptedFirstname, errChan, &wg)
 
 	// decrypt last name
-	wgDecrypt.Add(1)
-	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
-		defer wg.Done()
-
-		decrypted, err := s.cipher.DecryptServiceData(encrypted)
-		if err != nil {
-			errs <- fmt.Errorf("%s: %v", ErrDecryptLastname, err)
-			return
-		}
-		*plaintext = decrypted
-	}(user.Lastname, &decryptedLastname, errChan, &wgDecrypt)
+	wg.Add(1)
+	go s.decrypt(user.Lastname, ErrDecryptLastname, &decryptedLastname, errChan, &wg)
 
 	// decrypt birthdate
-	wgDecrypt.Add(1)
-	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
-		defer wg.Done()
-
-		decrypted, err := s.cipher.DecryptServiceData(encrypted)
-		if err != nil {
-			errs <- fmt.Errorf("%s: %v", ErrDecryptBirthdate, err)
-			return
-		}
-		*plaintext = decrypted
-	}(user.BirthDate, &decryptedBirthdate, errChan, &wgDecrypt)
+	wg.Add(1)
+	go s.decrypt(user.BirthDate, ErrDecryptBirthdate, &decryptedBirthdate, errChan, &wg)
 
 	// decrypt authcode
-	wgDecrypt.Add(1)
-	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
-		defer wg.Done()
-
-		decrypted, err := s.cipher.DecryptServiceData(encrypted)
-		if err != nil {
-			errs <- fmt.Errorf("%s: %v", ErrDecryptAuthcode, err)
-			return
-		}
-		*plaintext = decrypted
-	}(user.Authcode, &decryptedAuthcode, errChan, &wgDecrypt)
+	wg.Add(1)
+	go s.decrypt(user.Authcode, ErrDecryptAuthcode, &decryptedAuthcode, errChan, &wg)
 
 	// decrypt nonce
-	wgDecrypt.Add(1)
-	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
-		defer wg.Done()
-
-		decrypted, err := s.cipher.DecryptServiceData(encrypted)
-		if err != nil {
-			errs <- fmt.Errorf("%s: %v", ErrDecryptNonce, err)
-			return
-		}
-		*plaintext = decrypted
-	}(user.Nonce, &decryptedNonce, errChan, &wgDecrypt)
+	wg.Add(1)
+	go s.decrypt(user.Nonce, ErrDecryptNonce, &decryptedNonce, errChan, &wg)
 
 	// decrypt client id
-	wgDecrypt.Add(1)
-	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
-		defer wg.Done()
-
-		decrypted, err := s.cipher.DecryptServiceData(encrypted)
-		if err != nil {
-			errs <- fmt.Errorf("%s: %v", ErrDecryptClientid, err)
-			return
-		}
-		*plaintext = decrypted
-	}(user.ClientId, &decryptedClientId, errChan, &wgDecrypt)
+	wg.Add(1)
+	go s.decrypt(user.ClientId, ErrDecryptClientid, &decryptedClientId, errChan, &wg)
 
 	// decrypt redirect url
-	wgDecrypt.Add(1)
-	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
-		defer wg.Done()
-
-		decrypted, err := s.cipher.DecryptServiceData(encrypted)
-		if err != nil {
-			errs <- fmt.Errorf("%s: %v", ErrDecryptRedirecturl, err)
-			return
-		}
-		*plaintext = decrypted
-	}(user.RedirectUrl, &decryptedRedirectUrl, errChan, &wgDecrypt)
+	wg.Add(1)
+	go s.decrypt(user.RedirectUrl, ErrDecryptRedirecturl, &decryptedRedirectUrl, errChan, &wg)
 
 	// decrypt scopes
-	wgDecrypt.Add(1)
-	go func(encrypted string, plaintext *string, errs chan error, wg *sync.WaitGroup) {
-		defer wg.Done()
-
-		decrypted, err := s.cipher.DecryptServiceData(encrypted)
-		if err != nil {
-			errs <- fmt.Errorf("%s: %v", ErrDecryptScopes, err)
-			return
-		}
-		*plaintext = decrypted
-	}(user.Scopes, &decryptedScopes, errChan, &wgDecrypt)
+	wg.Add(1)
+	go s.decrypt(user.Scopes, ErrDecryptScopes, &decryptedScopes, errChan, &wg)
 
 	// wait for all decryption goroutines to finish
-	wgDecrypt.Wait()
+	wg.Wait()
 	close(errChan)
 
 	// consolidate and return any errors
@@ -705,6 +624,20 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 		AuthcodeClaimed:   user.AuthcodeClaimed,
 		AuthcodeRevoked:   user.AuthcodeRevoked,
 	}, nil
+}
+
+// decrypt is a helper function to decrypt encrypted data
+func (s *service) decrypt(encrypted, errMsg string, plaintext *string, ch chan error, wg *sync.WaitGroup) {
+
+	defer wg.Done()
+
+	decrypted, err := s.cipher.DecryptServiceData(encrypted)
+	if err != nil {
+		ch <- fmt.Errorf("%s: %v", errMsg, err)
+		return
+	}
+
+	*plaintext = decrypted
 }
 
 func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
