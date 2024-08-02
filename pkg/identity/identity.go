@@ -157,7 +157,7 @@ func New(config config.Config) (Identity, error) {
 	authService := authentication.NewService(repository, signer, indexer, cryptor, s2sProvider, s2sCaller)
 
 	// oauth flow service
-	oathService := oauth.NewService(repository, cryptor, indexer)
+	oathService := oauth.NewService(repository, indexer, cryptor)
 
 	// registration service
 	regService := register.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller)

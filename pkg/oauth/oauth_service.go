@@ -23,11 +23,11 @@ type Service interface {
 	OauthErrService
 }
 
-func NewService(db data.SqlRepository, c data.Cryptor, i data.Indexer) Service {
+func NewService(db data.SqlRepository, i data.Indexer, c data.Cryptor) Service {
 	return &service{
 		db:      db,
-		cipher:  c,
 		indexer: i,
+		cryptor: c,
 
 		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentOauthFlow)),
 	}
@@ -58,8 +58,8 @@ var _ Service = (*service)(nil)
 
 type service struct {
 	db      data.SqlRepository
-	cipher  data.Cryptor
 	indexer data.Indexer
+	cryptor data.Cryptor
 
 	logger *slog.Logger
 }
@@ -272,7 +272,7 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 		}
 		*authCodeIndex = index
 
-		encrypted, err := s.cipher.EncryptServiceData(authCode.String())
+		encrypted, err := s.cryptor.EncryptServiceData(authCode.String())
 		if err != nil {
 			errs <- fmt.Errorf("failed to encrypt auth code: %v", err)
 			return
@@ -285,7 +285,7 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 	go func(nonce string, encryptedNonce *string, errs chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
-		encrypted, err := s.cipher.EncryptServiceData(nonce)
+		encrypted, err := s.cryptor.EncryptServiceData(nonce)
 		if err != nil {
 			errs <- fmt.Errorf("failed to encrypt nonce: %v", err)
 			return
@@ -298,7 +298,7 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 	go func(clientId string, encryptedClientId *string, errs chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
-		encrypted, err := s.cipher.EncryptServiceData(clientId)
+		encrypted, err := s.cryptor.EncryptServiceData(clientId)
 		if err != nil {
 			errs <- fmt.Errorf("failed to encrypt client id: %v", err)
 			return
@@ -311,7 +311,7 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 	go func(redirect string, encryptedRedirect *string, errs chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
-		encrypted, err := s.cipher.EncryptServiceData(redirect)
+		encrypted, err := s.cryptor.EncryptServiceData(redirect)
 		if err != nil {
 			errs <- fmt.Errorf("failed to encrypt redirect url: %v", err)
 			return
@@ -333,7 +333,7 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 			}
 		}
 
-		encrypted, err := s.cipher.EncryptServiceData(builder.String())
+		encrypted, err := s.cryptor.EncryptServiceData(builder.String())
 		if err != nil {
 			errs <- fmt.Errorf("failed to encrypt generaed scopes string: %v", err)
 			return
@@ -622,7 +622,7 @@ func (s *service) decrypt(encrypted, errMsg string, plaintext *string, ch chan e
 
 	defer wg.Done()
 
-	decrypted, err := s.cipher.DecryptServiceData(encrypted)
+	decrypted, err := s.cryptor.DecryptServiceData(encrypted)
 	if err != nil {
 		ch <- fmt.Errorf("%s: %v", errMsg, err)
 		return
