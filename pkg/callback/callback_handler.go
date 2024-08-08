@@ -23,7 +23,7 @@ const (
 )
 
 // service scopes required
-var allowed []string = []string{"w:shaw:*"}
+var allowed []string = []string{"w:shaw:profile:*"}
 
 type Handler interface {
 	HandleCallback(w http.ResponseWriter, r *http.Request)

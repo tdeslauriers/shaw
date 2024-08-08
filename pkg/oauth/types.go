@@ -101,7 +101,7 @@ type AuthCode struct {
 
 // AuthcodeAccount is a model for authcode_account xref table
 type AuthcodeAccount struct {
-	// Id omitted for insert
+	Id           int    `json:"id" db:"id"`
 	AuthcodeUuid string `json:"authcode_uuid" db:"authcode_uuid"`
 	AccountUuid  string `json:"account_uuid" db:"account_uuid"`
 	CreatedAt    string `json:"created_at" db:"created_at"`
@@ -114,7 +114,7 @@ type OauthUserData struct {
 	Username       string `json:"username" db:"username"`
 	Firstname      string `json:"firstname" db:"firstname"`
 	Lastname       string `json:"lastname" db:"lastname"`
-	BirthDate      string `json:"birthdate" db:"birthdate"`
+	BirthDate      string `json:"birth_date" db:"birth_date"`
 	Enabled        bool   `json:"enabled" db:"enabled"`
 	AccountExpired bool   `json:"account_expired" db:"account_expired"`
 	AccountLocked  bool   `json:"account_locked" db:"account_locked"`
@@ -122,7 +122,7 @@ type OauthUserData struct {
 	// authcode table
 	Authcode          string          `json:"authcode" db:"authcode"`
 	Nonce             string          `json:"nonce" db:"nonce"`
-	ClientId          string          `json:"client_id" db:"client_id"`
+	ClientId          string          `json:"client_id" db:"client_uuid"`
 	RedirectUrl       string          `json:"redirect_url" db:"redirect_url"`
 	Scopes            string          `json:"scopes" db:"scopes"`
 	AuthcodeCreatedAt data.CustomTime `json:"created_at" db:"created_at"`

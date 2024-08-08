@@ -359,7 +359,7 @@ func (s *userAuthService) PersistRefresh(r types.UserRefresh) error {
 	r.UsernameIndex = usernameIndex
 
 	// insert record
-	qry := `INSERT INTO refresh_token (uuid, refresh_index, client_id, refresh_token, username, username_index, created_at, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	qry := `INSERT INTO refresh (uuid, refresh_index, client_id, refresh_token, username, username_index, created_at, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 	if err := s.db.InsertRecord(qry, r); err != nil {
 		return fmt.Errorf("failed to insert refresh token record: %v", err)
 	}

@@ -29,7 +29,8 @@ func NewService(db data.SqlRepository, i data.Indexer, c data.Cryptor) Service {
 		indexer: i,
 		cryptor: c,
 
-		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentOauthFlow)),
+		logger: slog.Default().
+			With(slog.String(util.ComponentKey, util.ComponentOauthFlow)),
 	}
 }
 
@@ -233,10 +234,14 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 			return
 		}
 
-		qry := `SELECT uuid FROM account WHERE user_index = ?`
-		if err := s.db.SelectRecord(qry, &id, userIndex); err != nil {
+		// only need the user uuid
+		qry := `SELECT uuid, username, user_index, password, firstname, lastname, birth_date, created_at, enabled, account_expired, account_locked FROM account WHERE user_index = ?`
+		var user types.UserAccount
+		if err := s.db.SelectRecord(qry, &user, userIndex); err != nil {
 			errs <- fmt.Errorf("failed to retrieve user uuid for %s: %v", username, err)
 		}
+
+		*id = user.Uuid
 	}(username, &userId, errChan, &wg)
 
 	// build auth code record
@@ -342,10 +347,9 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 	}(scopes, &encryptedScopes, errChan, &wg)
 
 	// wait for all value generation goroutines to finish
-	go func() {
-		wg.Wait()
-		close(errChan)
-	}()
+
+	wg.Wait()
+	close(errChan)
 
 	// consolidate and return any errors
 	if len(errChan) > 0 {
@@ -362,7 +366,7 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 	}
 
 	// create auth code and authcode-account xref records for persistance
-	createdAt := time.Now()
+	createdAt := time.Now().UTC()
 
 	code := AuthCode{
 		Id:            authCodeId.String(),
@@ -383,51 +387,15 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 		CreatedAt:    createdAt.Format("2006-01-02 15:04:05"),
 	}
 
-	var wgPersist sync.WaitGroup
-	var errPersistChan = make(chan error, 2)
+	codeQuery := `INSERT into authcode (uuid, authcode_index, authcode, nonce, client_uuid, redirect_url, scopes, created_at, claimed, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	if err := s.db.InsertRecord(codeQuery, code); err != nil {
+		return "", fmt.Errorf("failed to insert authcode record for %s into db: %v", username, err)
+	}
 
-	// persist auth code to db
-	wgPersist.Add(1)
-	go func(code AuthCode, errs chan error, wg *sync.WaitGroup) {
-		defer wgPersist.Done()
-
-		qry := `INSERT into authcode (uuid, authcode_index, authcode, client_uuid, redirect_url, scopes, created_at, claimed, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-		if err := s.db.InsertRecord(qry, code); err != nil {
-			errPersistChan <- fmt.Errorf("failed to insert authcode record for %s into db: %v", username, err)
-			return
-		}
-	}(code, errPersistChan, &wgPersist)
-
-	// persist account authcode xref to db
-	wgPersist.Add(1)
-	go func(xref AuthcodeAccount, errs chan error, wg *sync.WaitGroup) {
-		defer wgPersist.Done()
-
-		qry := `INSERT into authcode_account (authcode_uuid, account_uuid, created_at) VALUES (?, ?, ?)`
-		if err := s.db.InsertRecord(qry, xref); err != nil {
-			errPersistChan <- fmt.Errorf("failed to insert authcode_account xref record for %s into db: %v", username, err)
-			return
-		}
-	}(xref, errPersistChan, &wgPersist)
-
-	// wait for persistence activities to finish
-	go func() {
-		wgPersist.Wait()
-		close(errPersistChan)
-	}()
-
-	// consolidate and return any errors
-	if len(errPersistChan) > 0 {
-		var builder strings.Builder
-		count := 0
-		for e := range errPersistChan {
-			builder.WriteString(e.Error())
-			if count < len(errPersistChan)-1 {
-				builder.WriteString("; ")
-			}
-			count++
-		}
-		return "", fmt.Errorf("failed to generate auth code: %v", builder.String())
+	// cannot use concurrency because of foreign key constraints parent table uuids.
+	xrefQuery := `INSERT into authcode_account (id, authcode_uuid, account_uuid, created_at) VALUES (?, ?, ?, ?)`
+	if err := s.db.InsertRecord(xrefQuery, xref); err != nil {
+		return "", fmt.Errorf("failed to insert authcode_account xref record for %s into db: %v", username, err)
 	}
 
 	return authCode.String(), nil
@@ -457,13 +425,13 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 				a.username, 
 				a.firstname,
 				a.lastname,
-				a.birthdate,
+				a.birth_date,
 				a.enabled,
 				a.account_expired,
 				a.account_locked,
 				ac.authcode,
 				ac.nonce,
-				ac.client_id,
+				ac.client_uuid,
 				ac.redirect_url,
 				ac.scopes,
 				ac.created_at,

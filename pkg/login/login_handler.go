@@ -16,7 +16,7 @@ import (
 )
 
 // service scopes required
-var allowed []string = []string{"w:shaw:*"}
+var allowed []string = []string{"w:shaw:profile:*"}
 
 type Handler interface {
 	HandleLogin(w http.ResponseWriter, r *http.Request)

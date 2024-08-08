@@ -38,7 +38,7 @@ CREATE TABLE refresh (
     revoked BOOLEAN NOT NULL
 );
 CREATE UNIQUE INDEX idx_refresh_index ON refresh(refresh_index);
-CREATE UNIQUE INDEX idx_refresh_username ON refresh(username_index);
+CREATE INDEX idx_refresh_username ON refresh(username_index);
 
 -- password history table
 CREATE TABLE password_history (
