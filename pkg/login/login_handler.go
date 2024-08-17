@@ -104,7 +104,7 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer wg.Done()
 		if valid, err := h.oauth.IsValidRedirect(cmd.ClientId, cmd.Redirect); !valid {
-			h.logger.Error(fmt.Sprintf("failed to validate redirect url's (%s) association with client (%s)", cmd.Redirect, cmd.ClientId), "err", err.Error())
+			h.logger.Error(err.Error())
 			errChan <- err
 		}
 	}()
@@ -114,7 +114,7 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer wg.Done()
 		if valid, err := h.oauth.IsValidClient(cmd.ClientId, cmd.Username); !valid {
-			h.logger.Error(fmt.Sprintf("failed to validate user's (%s) association with client Id (%s)", cmd.Username, cmd.ClientId), "err", err.Error())
+			h.logger.Error(err.Error())
 			errChan <- err
 		}
 	}()
@@ -128,23 +128,20 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	go func() {
-		wg.Wait()
-		close(errChan)
-	}()
+	wg.Wait()
+	close(errChan)
 
 	// consolidate and return any login errors
-	var loginErrors []error
-	for e := range errChan {
-		loginErrors = append(loginErrors, e)
-	}
-	if len(loginErrors) > 0 {
+	length := len(errChan)
+	if length > 0 {
 		var builder strings.Builder
-		for i, e := range loginErrors {
+		counter := 0
+		for e := range errChan {
 			builder.WriteString(e.Error())
-			if i < len(loginErrors)-1 {
-				builder.WriteString(", ")
+			if counter < length-1 {
+				builder.WriteString("; ")
 			}
+			counter++
 		}
 
 		errHttp := connect.ErrorHttp{
