@@ -14,8 +14,14 @@ import (
 // service scopes required
 var allowed []string = []string{"w:shaw:profile:*"}
 
+// Handler interface for refresh services such as refeshing the access token and destroying the refresh token
 type Handler interface {
+	// HandleRefresh handles the refresh request from users:
+	// returns a new access token, and a replacement refresh token
 	HandleRefresh(w http.ResponseWriter, r *http.Request)
+
+	// HandleDestroy handles the destroy refresh token request from users
+	HandleDestroy(w http.ResponseWriter, r *http.Request)
 }
 
 func NewHandler(a types.UserAuthService, v jwt.Verifier) Handler {
@@ -30,6 +36,7 @@ func NewHandler(a types.UserAuthService, v jwt.Verifier) Handler {
 
 var _ Handler = (*handler)(nil)
 
+// contrceate handler implementation
 type handler struct {
 	auth     types.UserAuthService
 	verifier jwt.Verifier
@@ -37,7 +44,14 @@ type handler struct {
 	logger *slog.Logger
 }
 
+// HandleRefresh handles the refresh request from users:
+// returns a new access token, and a replacement refresh token
 func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
+	// TODO: implement refresh token logic
+}
+
+// HandleDestroy handles the destroy refresh token request from users
+func (h *handler) HandleDestroy(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method != "POST" {
 		e := connect.ErrorHttp{

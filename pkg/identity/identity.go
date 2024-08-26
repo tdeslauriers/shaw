@@ -14,6 +14,7 @@ import (
 	"shaw/pkg/callback"
 	"shaw/pkg/login"
 	"shaw/pkg/oauth"
+	"shaw/pkg/refresh"
 	"shaw/pkg/register"
 	"time"
 
@@ -209,14 +210,9 @@ func (i *identity) CloseDb() error {
 func (i *identity) Run() error {
 
 	registerHandler := register.NewHandler(i.registerService, i.s2sVerifier)
-
 	loginHandler := login.NewHandler(i.authService, i.oathService, i.s2sVerifier)
-
 	callbackHandler := callback.NewHandler(i.s2sVerifier, i.authService, i.oathService)
-
-	// refresh handler
-	// TODO: implement refresh handler
-
+	refreshHandler := refresh.NewHandler(i.authService, i.s2sVerifier)
 
 	// password change handler
 	// TODO: implement password change handler
@@ -226,6 +222,9 @@ func (i *identity) Run() error {
 	mux.HandleFunc("/register", registerHandler.HandleRegistration)
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
 	mux.HandleFunc("/callback", callbackHandler.HandleCallback)
+
+	mux.HandleFunc("/refresh", refreshHandler.HandleRefresh)
+	mux.HandleFunc("/refresh/destroy", refreshHandler.HandleDestroy)
 
 	identityServer := &connect.TlsServer{
 		Addr:      i.config.ServicePort,
