@@ -232,6 +232,8 @@ func (s *userAuthService) MintToken(claims jwt.Claims) (*jwt.Token, error) {
 	return &jot, nil
 }
 
+// Concrete implementations of the refresh token for user authentication service.
+
 // GetRefreshToken retreives a refresh token by recreating the blind index, selecting, and then decrypting the record.
 func (s *userAuthService) GetRefreshToken(refreshToken string) (*types.UserRefresh, error) {
 
@@ -363,6 +365,22 @@ func (s *userAuthService) PersistRefresh(r types.UserRefresh) error {
 	if err := s.db.InsertRecord(qry, r); err != nil {
 		return fmt.Errorf("failed to insert refresh token record: %v", err)
 	}
+
+	return nil
+}
+
+// DestroyRefresh removes the refresh token from the persistence store.
+func (s *userAuthService) DestroyRefresh(refreshToken string) error {
+
+	// TODO: implement destroy refresh token
+
+	return nil
+}
+
+// RevokeRefresh revokes the refresh token by updating the record in the persistence store.
+func (s *userAuthService) RevokeRefresh(refreshToken string) error {
+
+	// TODO: implement revoke refresh token
 
 	return nil
 }

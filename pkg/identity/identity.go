@@ -217,6 +217,7 @@ func (i *identity) Run() error {
 	// refresh handler
 	// TODO: implement refresh handler
 
+
 	// password change handler
 	// TODO: implement password change handler
 
