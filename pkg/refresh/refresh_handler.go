@@ -2,9 +2,11 @@ package refresh
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
+	"shaw/pkg/authentication"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
@@ -24,7 +26,7 @@ type Handler interface {
 	HandleDestroy(w http.ResponseWriter, r *http.Request)
 }
 
-func NewHandler(a types.UserAuthService, v jwt.Verifier) Handler {
+func NewHandler(a authentication.Service, v jwt.Verifier) Handler {
 	return &handler{
 		auth:     a,
 		verifier: v,
@@ -38,7 +40,7 @@ var _ Handler = (*handler)(nil)
 
 // contrceate handler implementation
 type handler struct {
-	auth     types.UserAuthService
+	auth     authentication.Service
 	verifier jwt.Verifier
 
 	logger *slog.Logger
@@ -93,5 +95,15 @@ func (h *handler) HandleDestroy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: destroy refresh token
+	// destroy refresh token
+	if err := h.auth.DestroyRefresh(cmd.DestroyRefreshToken); err != nil {
+		h.logger.Error("failed to destroy refresh token", "err", err.Error())
+		h.auth.HandleServiceErr(err, w)
+		return
+	}
+
+	h.logger.Info(fmt.Sprintf("refresh token %s destroyed", cmd.DestroyRefreshToken[len(cmd.DestroyRefreshToken)-6:]))
+
+	// respond with success
+	w.WriteHeader(http.StatusNoContent)
 }

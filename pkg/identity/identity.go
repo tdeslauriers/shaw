@@ -24,7 +24,6 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/diagnostics"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
-	"github.com/tdeslauriers/carapace/pkg/session/types"
 )
 
 type Identity interface {
@@ -191,7 +190,7 @@ type identity struct {
 	serverTls       *tls.Config
 	repository      data.SqlRepository
 	s2sVerifier     jwt.Verifier
-	authService     types.UserAuthService
+	authService     authentication.Service
 	oathService     oauth.Service
 	registerService register.Service
 	// refresh service

@@ -50,6 +50,7 @@ type OauthService interface {
 	RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, error)
 }
 
+// OauthErrService is an interface for handling errors returned by the service methods and sending the appropriate http response
 type OauthErrService interface {
 	// HandleServiceErr handles errors returned by the service methods and sends the appropriate http response
 	HandleServiceErr(err error, w http.ResponseWriter)

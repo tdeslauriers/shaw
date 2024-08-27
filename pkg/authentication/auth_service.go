@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"shaw/internal/util"
 	"strings"
 	"sync"
@@ -26,8 +27,13 @@ const (
 	IdTokenDuration     time.Duration = 60 // minutes
 )
 
+type Service interface {
+	types.UserAuthService
+	AuthErrService
+}
+
 // NewService creates an implementation of the user authentication service in the carapace session package.
-func NewService(db data.SqlRepository, s jwt.Signer, i data.Indexer, c data.Cryptor, p provider.S2sTokenProvider, call connect.S2sCaller) types.UserAuthService {
+func NewService(db data.SqlRepository, s jwt.Signer, i data.Indexer, c data.Cryptor, p provider.S2sTokenProvider, call connect.S2sCaller) Service {
 	return &userAuthService{
 		db:               db,
 		mint:             s,
@@ -40,7 +46,13 @@ func NewService(db data.SqlRepository, s jwt.Signer, i data.Indexer, c data.Cryp
 	}
 }
 
-var _ types.UserAuthService = (*userAuthService)(nil)
+// AuthErrService is an interface for handling errors returned by the service methods and sending the appropriate error response to the client.
+type AuthErrService interface {
+	// HandleAuthErr handles errors returned by the service methods and sends the appropriate error response to the client.
+	HandleServiceErr(err error, w http.ResponseWriter)
+}
+
+var _ Service = (*userAuthService)(nil)
 
 type userAuthService struct {
 	db               data.SqlRepository
@@ -56,10 +68,18 @@ type userAuthService struct {
 // ValidateCredentials validates the user credentials for user authentication service
 func (s *userAuthService) ValidateCredentials(username, password string) error {
 
+	if len(username) < 5 || len(password) > 255 {
+		return errors.New(ErrInvalidUsernamePassword)
+	}
+
+	if len(password) < 16 || len(password) > 64 {
+		return errors.New(ErrInvalidUsernamePassword)
+	}
+
 	// create index for db lookup
 	userIndex, err := s.indexer.ObtainBlindIndex(username)
 	if err != nil {
-		s.logger.Error("failed to obtain blind index for user lookup", "err", err.Error())
+		s.logger.Error(fmt.Sprintf("%s for user %s lookup", ErrGenerateIndex, username), "err", err.Error())
 		return err
 	}
 
@@ -81,7 +101,7 @@ func (s *userAuthService) ValidateCredentials(username, password string) error {
 		WHERE user_index = ?`
 	if err := s.db.SelectRecord(qry, &user, userIndex); err != nil {
 		s.logger.Error(fmt.Sprintf("failed to retrieve user record for %s", username), "err", err.Error())
-		return errors.New("invalid username or password")
+		return errors.New(ErrInvalidUsernamePassword)
 	}
 
 	// validate password
@@ -89,22 +109,22 @@ func (s *userAuthService) ValidateCredentials(username, password string) error {
 	hash := []byte(user.Password)
 	if err := bcrypt.CompareHashAndPassword(hash, pw); err != nil {
 		s.logger.Error("failed to validate user password", "err", err.Error())
-		return errors.New("invalid username or password")
+		return errors.New(ErrInvalidUsernamePassword)
 	}
 
 	if !user.Enabled {
 		s.logger.Error(fmt.Sprintf("user account %s is disabled", username))
-		return fmt.Errorf("user account %s is disabled", username)
+		return fmt.Errorf("user %s account is disabled", username)
 	}
 
 	if user.AccountLocked {
 		s.logger.Error(fmt.Sprintf("user account %s is locked", username))
-		return fmt.Errorf("user account %s is locked", username)
+		return fmt.Errorf("user %s account is locked", username)
 	}
 
 	if user.AccountExpired {
 		s.logger.Error(fmt.Sprintf("user account %s is expired", username))
-		return fmt.Errorf("user account %s is expired", username)
+		return fmt.Errorf("user %s account is expired", username)
 	}
 
 	return nil
@@ -160,7 +180,7 @@ func (s *userAuthService) lookupUserScopes(username string, wg *sync.WaitGroup, 
 	// user index
 	index, err := s.indexer.ObtainBlindIndex(username)
 	if err != nil {
-		s.logger.Error(fmt.Sprintf("failed to generate user index for username %s", username), "err", err.Error())
+		s.logger.Error(fmt.Sprintf("%s for username %s", ErrGenerateIndex, username), "err", err.Error())
 	}
 
 	qry := `
@@ -276,7 +296,7 @@ func (s *userAuthService) PersistRefresh(r types.UserRefresh) error {
 
 		ndx, err := s.indexer.ObtainBlindIndex(refresh)
 		if err != nil {
-			ch <- fmt.Errorf("failed to generate blind index for refresh token xxxxxx-%s: %v", refresh[len(refresh)-6:], err)
+			ch <- fmt.Errorf("%s for refresh token xxxxxx-%s: %v", ErrGenerateIndex, refresh[len(refresh)-6:], err)
 			return
 		}
 		*index = ndx
@@ -328,7 +348,7 @@ func (s *userAuthService) PersistRefresh(r types.UserRefresh) error {
 
 		ndx, err := s.indexer.ObtainBlindIndex(username)
 		if err != nil {
-			ch <- fmt.Errorf("failed to generate blind index for username %s: %v", username, err)
+			ch <- fmt.Errorf("%s for username %s: %v", ErrGenerateIndex, username, err)
 			return
 		}
 		*index = ndx
@@ -374,13 +394,13 @@ func (s *userAuthService) DestroyRefresh(refreshToken string) error {
 
 	// light validation: redundant check, but good practice
 	if len(refreshToken) < 16 || len(refreshToken) > 64 {
-		return errors.New("invalid refresh token")
+		return fmt.Errorf("invalid refresh token: must be between %d and %d characters", 16, 64)
 	}
 
 	// create blind index
 	index, err := s.indexer.ObtainBlindIndex(refreshToken)
 	if err != nil {
-		return fmt.Errorf("failed to generate blind index for refresh token xxxxxx-%s: %v", refreshToken[len(refreshToken)-6:], err)
+		return fmt.Errorf("%s for refresh token xxxxxx-%s: %v", ErrGenerateIndex, refreshToken[len(refreshToken)-6:], err)
 	}
 
 	// calling record to validate it exists
@@ -398,8 +418,6 @@ func (s *userAuthService) DestroyRefresh(refreshToken string) error {
 		return fmt.Errorf("failed to delete refresh token xxxxxx-%s record: %v", refreshToken[len(refreshToken)-6:], err)
 	}
 
-	s.logger.Info(fmt.Sprintf("refresh token xxxxxx-%s destroyed", refreshToken[len(refreshToken)-6:]))
-
 	return nil
 }
 
@@ -414,7 +432,7 @@ func (s *userAuthService) RevokeRefresh(refreshToken string) error {
 	// create blind index
 	index, err := s.indexer.ObtainBlindIndex(refreshToken)
 	if err != nil {
-		return fmt.Errorf("failed to generate blind index for refresh token xxxxxx-%s: %v", refreshToken[len(refreshToken)-6:], err)
+		return fmt.Errorf("%s for refresh token xxxxxx-%s: %v", ErrGenerateIndex, refreshToken[len(refreshToken)-6:], err)
 	}
 
 	// calling record to validate it exists
@@ -432,7 +450,64 @@ func (s *userAuthService) RevokeRefresh(refreshToken string) error {
 		return fmt.Errorf("failed to revoke refresh token xxxxxx-%s record: %v", refreshToken[len(refreshToken)-6:], err)
 	}
 
-	s.logger.Info(fmt.Sprintf("refresh token xxxxxx-%s revoked", refreshToken[len(refreshToken)-6:]))
-
 	return nil
+}
+
+func (s *userAuthService) HandleServiceErr(err error, w http.ResponseWriter) {
+	switch {
+
+	// 401
+	case strings.Contains(err.Error(), ErrInvalidUsernamePassword):
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    ErrInvalidUsernamePassword,
+		}
+		e.SendJsonErr(w)
+		return
+	case strings.Contains(err.Error(), ErrUserDisabled):
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    fmt.Sprintf("user %s", ErrUserDisabled),
+		}
+		e.SendJsonErr(w)
+		return
+	case strings.Contains(err.Error(), ErrUserLocked):
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    fmt.Sprintf("user %s", ErrUserLocked),
+		}
+		e.SendJsonErr(w)
+		return
+	case strings.Contains(err.Error(), ErrUserExipred):
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    fmt.Sprintf("user %s", ErrUserExipred),
+		}
+		e.SendJsonErr(w)
+		return
+	case strings.Contains(err.Error(), "not found"):
+	case strings.Contains(err.Error(), "does not exist"):
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusNotFound,
+			Message:    "not found",
+		}
+		e.SendJsonErr(w)
+		return
+	case strings.Contains(err.Error(), "invalid refresh token"):
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnprocessableEntity,
+			Message:    "invalid refresh token",
+		}
+		e.SendJsonErr(w)
+		return
+	default:
+		s.logger.Error(err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "internal server error",
+		}
+		e.SendJsonErr(w)
+		return
+	}
+
 }

@@ -29,10 +29,10 @@ type Handler interface {
 	HandleCallback(w http.ResponseWriter, r *http.Request)
 }
 
-func NewHandler(v jwt.Verifier, u types.UserAuthService, o oauth.Service) Handler {
+func NewHandler(v jwt.Verifier, u authentication.Service, o oauth.Service) Handler {
 	return &handler{
 		s2sVerifier: v,
-		userAuth:    u,
+		auth:        u,
 		oauth:       o,
 
 		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentCallback)),
@@ -43,7 +43,7 @@ var _ Handler = (*handler)(nil)
 
 type handler struct {
 	s2sVerifier jwt.Verifier
-	userAuth    types.UserAuthService
+	auth        authentication.Service
 	oauth       oauth.Service
 
 	logger *slog.Logger
@@ -125,7 +125,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// mint jwt access token
-	accessToken, err := h.userAuth.MintToken(accessClaims)
+	accessToken, err := h.auth.MintToken(accessClaims)
 	if err != nil {
 		h.logger.Error(fmt.Sprintf("failed to mint access token for user name %s", userData.Username), "err", err.Error())
 		e := connect.ErrorHttp{
@@ -156,7 +156,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// mint jwt id token
-	idToken, err := h.userAuth.MintToken(idClaims)
+	idToken, err := h.auth.MintToken(idClaims)
 	if err != nil {
 		h.logger.Error(fmt.Sprintf("failed to mint id token for user name %s", userData.Username), "err", err.Error())
 		e := connect.ErrorHttp{
@@ -191,7 +191,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func(r types.UserRefresh) {
-		if err := h.userAuth.PersistRefresh(r); err != nil {
+		if err := h.auth.PersistRefresh(r); err != nil {
 			h.logger.Error(fmt.Sprintf("failed to persist refresh token for user name %s", userData.Username), "err", err.Error())
 		}
 	}(persist)

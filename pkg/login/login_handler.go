@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
+	"shaw/pkg/authentication"
 	"shaw/pkg/oauth"
 	"strings"
 	"sync"
@@ -22,7 +23,7 @@ type Handler interface {
 	HandleLogin(w http.ResponseWriter, r *http.Request)
 }
 
-func NewHandler(u types.UserAuthService, o oauth.Service, v jwt.Verifier) Handler {
+func NewHandler(u authentication.Service, o oauth.Service, v jwt.Verifier) Handler {
 	return &handler{
 		auth:        u,
 		oauth:       o,
@@ -35,7 +36,7 @@ func NewHandler(u types.UserAuthService, o oauth.Service, v jwt.Verifier) Handle
 var _ Handler = (*handler)(nil)
 
 type handler struct {
-	auth        types.UserAuthService
+	auth        authentication.Service
 	oauth       oauth.Service
 	s2sVerifier jwt.Verifier
 
