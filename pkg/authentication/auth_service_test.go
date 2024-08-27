@@ -175,6 +175,9 @@ func (dao *mockAuthSqlRepository) SelectRecord(query string, record interface{},
 	}
 }
 func (dao *mockAuthSqlRepository) SelectExists(query string, args ...interface{}) (bool, error) {
+	if args[0] == "index-"+"record-does-not-exist" {
+		return false, nil
+	}
 	return true, nil
 }
 func (dao *mockAuthSqlRepository) InsertRecord(query string, record interface{}) error {
@@ -184,9 +187,19 @@ func (dao *mockAuthSqlRepository) InsertRecord(query string, record interface{})
 	}
 	return nil
 }
-func (dao *mockAuthSqlRepository) UpdateRecord(query string, args ...interface{}) error { return nil }
-func (dao *mockAuthSqlRepository) DeleteRecord(query string, args ...interface{}) error { return nil }
-func (dao *mockAuthSqlRepository) Close() error                                         { return nil }
+func (dao *mockAuthSqlRepository) UpdateRecord(query string, args ...interface{}) error {
+	if args[0] == "failed-to-update-record" {
+		return errors.New("failed to update record")
+	}
+	return nil
+}
+func (dao *mockAuthSqlRepository) DeleteRecord(query string, args ...interface{}) error {
+	if args[0] == "failed-to-delete-record" {
+		return errors.New("failed to delete record")
+	}
+	return nil
+}
+func (dao *mockAuthSqlRepository) Close() error { return nil }
 
 type mockS2sTokenProvider struct{}
 
@@ -556,4 +569,96 @@ func TestPersistRefresh(t *testing.T) {
 		})
 	}
 
+}
+
+func TestDestroyToken(t *testing.T) {
+
+	testCases := []struct {
+		name        string
+		refresh     string
+		expectedErr error
+	}{
+		{
+			name:        "success - refresh token destroyed",
+			refresh:     "valid-refresh-token",
+			expectedErr: nil,
+		},
+		{
+			name:        "failure - invalid refresh token",
+			refresh:     "too-short",
+			expectedErr: errors.New("invalid refresh token"),
+		},
+		{
+			name:        "failure - cannot generate blind index",
+			refresh:     IncorrectUserIndex,
+			expectedErr: errors.New("failed to generate blind index"),
+		},
+		{
+			name:        "faiure - record does not exist",
+			refresh:     "record-does-not-exist",
+			expectedErr: errors.New("record does not exist"),
+		},
+		{
+			name:        "failure - failed to delete record",
+			refresh:     "failed-to-delete-record",
+			expectedErr: errors.New("failed to delete"),
+		},
+	}
+
+	authservice := NewService(&mockAuthSqlRepository{}, nil, &mockAuthIndexer{}, nil, nil, nil)
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := authservice.DestroyRefresh(tc.refresh)
+			if err != nil && !strings.Contains(err.Error(), tc.expectedErr.Error()) {
+				t.Errorf("expected %v, got %v", tc.expectedErr, err)
+			}
+		})
+	}
+}
+
+func TestRevokeToken(t *testing.T) {
+
+	testCases := []struct {
+		name        string
+		refresh     string
+		expectedErr error
+	}{
+		{
+			name:        "success - refresh token revoked",
+			refresh:     "valid-refresh-token",
+			expectedErr: nil,
+		},
+		{
+			name:        "failure - invalid refresh token",
+			refresh:     "too-short",
+			expectedErr: errors.New("invalid refresh token"),
+		},
+		{
+			name:        "failure - cannot generate blind index",
+			refresh:     IncorrectUserIndex,
+			expectedErr: errors.New("failed to generate blind index"),
+		},
+		{
+			name:        "faiure - record does not exist",
+			refresh:     "record-does-not-exist",
+			expectedErr: errors.New("record does not exist"),
+		},
+		{
+			name:        "failure - failed to revoke refresh",
+			refresh:     "failed-to-update-record",
+			expectedErr: errors.New("failed to revoke"),
+		},
+	}
+
+	authservice := NewService(&mockAuthSqlRepository{}, nil, &mockAuthIndexer{}, nil, nil, nil)
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := authservice.RevokeRefresh(tc.refresh)
+			if err != nil && !strings.Contains(err.Error(), tc.expectedErr.Error()) {
+				t.Errorf("expected %v, got %v", tc.expectedErr, err)
+			}
+		})
+	}
 }

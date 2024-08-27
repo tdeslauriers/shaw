@@ -372,7 +372,33 @@ func (s *userAuthService) PersistRefresh(r types.UserRefresh) error {
 // DestroyRefresh removes the refresh token from the persistence store.
 func (s *userAuthService) DestroyRefresh(refreshToken string) error {
 
-	// TODO: implement destroy refresh token
+	// light validation: redundant check, but good practice
+	if len(refreshToken) < 16 || len(refreshToken) > 64 {
+		return errors.New("invalid refresh token")
+	}
+
+	// create blind index
+	index, err := s.indexer.ObtainBlindIndex(refreshToken)
+	if err != nil {
+		return fmt.Errorf("failed to generate blind index for refresh token xxxxxx-%s: %v", refreshToken[len(refreshToken)-6:], err)
+	}
+
+	// calling record to validate it exists
+	// TODO: update crud functions in carapace to return rows affected so calls can be consolidated.
+	qry := `SELECT EXISTS (SELECT 1 FROM refresh WHERE refresh_index = ?)`
+	if exists, err := s.db.SelectExists(qry, index); err != nil {
+		return fmt.Errorf("failed to lookup refresh token xxxxxx-%s record: %v", refreshToken[len(refreshToken)-6:], err)
+	} else if !exists {
+		return fmt.Errorf("refresh token xxxxxx-%s record does not exist", refreshToken[len(refreshToken)-6:])
+	}
+
+	// delete record
+	qry = `DELETE FROM refresh WHERE refresh_index = ?`
+	if err := s.db.DeleteRecord(qry, index); err != nil {
+		return fmt.Errorf("failed to delete refresh token xxxxxx-%s record: %v", refreshToken[len(refreshToken)-6:], err)
+	}
+
+	s.logger.Info(fmt.Sprintf("refresh token xxxxxx-%s destroyed", refreshToken[len(refreshToken)-6:]))
 
 	return nil
 }
@@ -380,7 +406,33 @@ func (s *userAuthService) DestroyRefresh(refreshToken string) error {
 // RevokeRefresh revokes the refresh token by updating the record in the persistence store.
 func (s *userAuthService) RevokeRefresh(refreshToken string) error {
 
-	// TODO: implement revoke refresh token
+	// light validation: redundant check, but good practice
+	if len(refreshToken) < 16 || len(refreshToken) > 64 {
+		return errors.New("invalid refresh token")
+	}
+
+	// create blind index
+	index, err := s.indexer.ObtainBlindIndex(refreshToken)
+	if err != nil {
+		return fmt.Errorf("failed to generate blind index for refresh token xxxxxx-%s: %v", refreshToken[len(refreshToken)-6:], err)
+	}
+
+	// calling record to validate it exists
+	// TODO: update crud functions in carapace to return rows affected so calls can be consolidated.
+	qry := `SELECT EXISTS (SELECT 1 FROM refresh WHERE refresh_index = ?)`
+	if exists, err := s.db.SelectExists(qry, index); err != nil {
+		return fmt.Errorf("failed to lookup refresh token xxxxxx-%s record: %v", refreshToken[len(refreshToken)-6:], err)
+	} else if !exists {
+		return fmt.Errorf("refresh token xxxxxx-%s record does not exist", refreshToken[len(refreshToken)-6:])
+	}
+
+	// update record to revoked
+	qry = `UPDATE refresh SET revoked = ? WHERE refresh_index = ?`
+	if err := s.db.UpdateRecord(qry, true, index); err != nil {
+		return fmt.Errorf("failed to revoke refresh token xxxxxx-%s record: %v", refreshToken[len(refreshToken)-6:], err)
+	}
+
+	s.logger.Info(fmt.Sprintf("refresh token xxxxxx-%s revoked", refreshToken[len(refreshToken)-6:]))
 
 	return nil
 }
