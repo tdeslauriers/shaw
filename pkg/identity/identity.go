@@ -23,6 +23,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/diagnostics"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
+	"github.com/tdeslauriers/carapace/pkg/schedule"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 )
 
@@ -168,6 +169,9 @@ func New(config config.Config) (Identity, error) {
 	// password change service
 	// TODO: implement password change service
 
+	// clean up: database
+	cleanup := schedule.NewCleanup(repository)
+
 	return &identity{
 		config:          config,
 		serverTls:       serverTlsConfig,
@@ -176,6 +180,8 @@ func New(config config.Config) (Identity, error) {
 		authService:     authService,
 		oathService:     oathService,
 		registerService: regService,
+		cleanup:         cleanup,
+		// user token verifier
 		// refresh service
 		// password change service
 
@@ -193,6 +199,8 @@ type identity struct {
 	authService     authentication.Service
 	oathService     oauth.Service
 	registerService register.Service
+	cleanup         schedule.Cleanup
+	// user token verifier
 	// refresh service
 	// password change service
 
@@ -237,6 +245,8 @@ func (i *identity) Run() error {
 			i.logger.Error(fmt.Sprintf("failed to start %s user authentication service", i.config.ServiceName), "err", err.Error())
 		}
 	}()
+
+	go i.cleanup.ExpiredRefresh(12)
 
 	return nil
 }

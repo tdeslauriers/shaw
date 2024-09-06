@@ -421,7 +421,7 @@ func (s *userAuthService) DestroyRefresh(refreshToken string) error {
 	return nil
 }
 
-// RevokeRefresh revokes the refresh token by updating the record in the persistence store.
+// RevokeRefresh revokes the user refresh token by updating the record in the persistence store.
 func (s *userAuthService) RevokeRefresh(refreshToken string) error {
 
 	// light validation: redundant check, but good practice

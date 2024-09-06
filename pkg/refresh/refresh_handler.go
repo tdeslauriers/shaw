@@ -86,7 +86,7 @@ func (h *handler) HandleDestroy(w http.ResponseWriter, r *http.Request) {
 
 	// lightweight input validation
 	if err := cmd.ValidateCmd(); err != nil {
-		h.logger.Error("refresh cmd validation failed", "err", err.Error())
+		h.logger.Error("user refresh cmd validation failed", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnprocessableEntity,
 			Message:    err.Error(),
@@ -97,13 +97,15 @@ func (h *handler) HandleDestroy(w http.ResponseWriter, r *http.Request) {
 
 	// destroy refresh token
 	if err := h.auth.DestroyRefresh(cmd.DestroyRefreshToken); err != nil {
-		h.logger.Error("failed to destroy refresh token", "err", err.Error())
+		h.logger.Error("failed to destroy user refresh token", "err", err.Error())
 		h.auth.HandleServiceErr(err, w)
 		return
 	}
 
-	h.logger.Info(fmt.Sprintf("refresh token %s destroyed", cmd.DestroyRefreshToken[len(cmd.DestroyRefreshToken)-6:]))
+	h.logger.Info(fmt.Sprintf("user refresh token xxxxxx-%s destroyed", cmd.DestroyRefreshToken[len(cmd.DestroyRefreshToken)-6:]))
 
 	// respond with success
+	w.Header().Set("Content-Type", "application/json") // expected by s2sCaller: TODO: handle no content response
 	w.WriteHeader(http.StatusNoContent)
+
 }
