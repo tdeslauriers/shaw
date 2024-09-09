@@ -1,6 +1,7 @@
 -- Account table
 CREATE TABLE account (
     uuid CHAR(36) PRIMARY KEY,
+    user_key VARCHAR(128) NOT NULL,
     username VARCHAR(128) NOT NULL,
     user_index VARCHAR(128) NOT NULL,
     password VARCHAR(255) NOT NULL,
@@ -13,6 +14,7 @@ CREATE TABLE account (
     account_locked BOOLEAN NOT NULL
 );
 CREATE UNIQUE INDEX idx_user_blind_index ON account (user_index);
+CREATE UNIQUE iNDEX idx_user_key ON account (user_key);
 
 -- scopes table is in Ran Database, call s2s service for data
 -- account scope xref table

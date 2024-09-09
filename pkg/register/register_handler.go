@@ -79,6 +79,16 @@ func (h *handler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// check client id -> not checked in ValidateCmd
+	if len(cmd.ClientId) != 36 {
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnprocessableEntity,
+			Message:    "invalid client id",
+		}
+		e.SendJsonErr(w)
+		return
+	}
+
 	// register user
 	if err := h.regService.Register(cmd); err != nil {
 		if strings.Contains(err.Error(), UsernameUnavailableErrMsg) {

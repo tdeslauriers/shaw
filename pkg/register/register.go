@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
-
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
 
@@ -75,6 +74,12 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		return errors.New(err.Error())
 	}
 
+	// check client id
+	if len(cmd.ClientId) != 36 {
+		s.logger.Error("invalid client id", "err", fmt.Sprintf("client id %s is not a valid uuid", cmd.ClientId))
+		return errors.New("invalid client id")
+	}
+
 	// create blind user index
 	index, err := s.indexer.ObtainBlindIndex(cmd.Username)
 	if err != nil {
@@ -85,57 +90,73 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 	// lookup user name and client id first
 	// if user name exists, or client name does not exist, return error
 	var wgCheck sync.WaitGroup
-	clientChan := make(chan types.IdentityClient, 1)
 	checkErrChan := make(chan error, 2)
+
+	// client lookup for client id used in xref creation
+	var client types.IdentityClient
 
 	// check if user exists
 	wgCheck.Add(1)
-	go func() {
-		defer wgCheck.Done()
+	go func(idx string, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
 
 		query := "SELECT EXISTS(SELECT 1 from account WHERE user_index = ?) AS record_exists"
-		exists, err := s.db.SelectExists(query, index)
+		exists, err := s.db.SelectExists(query, idx)
 		if err != nil {
 			s.logger.Error("failed db call to check if user exists", "err", err.Error())
-			checkErrChan <- fmt.Errorf("failed db lookup to check if user exists")
+			ch <- fmt.Errorf("failed db lookup to check if user exists")
 		}
 		if exists {
 			s.logger.Error(fmt.Sprintf("username %s already exists", cmd.Username))
-			checkErrChan <- errors.New(UsernameUnavailableErrMsg)
+			ch <- errors.New(UsernameUnavailableErrMsg)
 		}
-	}()
+	}(index, checkErrChan, &wgCheck)
 
 	// check if client exists
 	wgCheck.Add(1)
-	go func() {
-		defer wgCheck.Done()
+	go func(c *types.IdentityClient, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
 
-		var client types.IdentityClient
 		query := "SELECT uuid, client_id, client_name, description, created_at, enabled, client_expired, client_locked FROM client WHERE client_id = ?"
-		if err := s.db.SelectRecord(query, &client, cmd.ClientId); err != nil {
+		if err := s.db.SelectRecord(query, c, cmd.ClientId); err != nil {
 			if err == sql.ErrNoRows {
 				s.logger.Error(fmt.Sprintf("client id xxxxxx-%s not found", cmd.ClientId[len(cmd.ClientId)-6:]), "err", err.Error())
-				checkErrChan <- errors.New(BuildUserErrMsg)
+				ch <- errors.New(BuildUserErrMsg)
 			} else {
 				s.logger.Error(fmt.Sprintf("failed to lookup client record for client id %s", cmd.ClientId[len(cmd.ClientId)-6:]), "err", err.Error())
-				checkErrChan <- errors.New(BuildUserErrMsg)
+				ch <- errors.New(BuildUserErrMsg)
 			}
 		}
-	}()
 
-	go func() {
-		wgCheck.Wait()
-		close(clientChan)
-		close(checkErrChan)
-	}()
+		if !c.Enabled {
+			s.logger.Error(fmt.Sprintf("client id xxxxxx-%s is disabled", cmd.ClientId[len(cmd.ClientId)-6:]))
+			ch <- errors.New("registration failed because client is disabled")
+		}
+
+		if c.ClientExpired {
+			s.logger.Error(fmt.Sprintf("client id xxxxxx-%s is expired", cmd.ClientId[len(cmd.ClientId)-6:]))
+			ch <- errors.New("registration failed because client is expired")
+		}
+
+		if c.ClientLocked {
+			s.logger.Error(fmt.Sprintf("client id xxxxxx-%s is locked", cmd.ClientId[len(cmd.ClientId)-6:]))
+			ch <- errors.New("registration failed because client is locked")
+		}
+
+	}(&client, checkErrChan, &wgCheck)
+
+	// wait for checks to complete
+	wgCheck.Wait()
+	close(checkErrChan)
 
 	// return err if either check fails
-	if len(checkErrChan) > 0 {
+	errCount := len(checkErrChan)
+	if errCount > 0 {
 		var builder strings.Builder
 		count := 0
 		for e := range checkErrChan {
 			builder.WriteString(e.Error())
-			if len(checkErrChan) > 1 && count < len(checkErrChan)-1 {
+			if errCount > 1 && count < errCount-1 {
 				builder.WriteString("; ")
 			}
 			count++
@@ -144,118 +165,143 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 	}
 
 	// handle crypto/encryption operations on user data concurrently
-	var wgBuild sync.WaitGroup
-	idChan := make(chan uuid.UUID, 1)
-	usernameChan := make(chan string, 1)
-	passwordChan := make(chan string, 1)
-	firstnameChan := make(chan string, 1)
-	lastnameChan := make(chan string, 1)
-	dobChan := make(chan string, 1)
+	var (
+		wgBuild   sync.WaitGroup
+		id        string
+		userKey   string
+		username  string
+		password  string
+		firstname string
+		lastname  string
+		dob       string
 
-	buildErrChan := make(chan error, 1)
+		buildErrChan = make(chan error, 1)
+	)
 
 	// build user record / encrypt user data for persistance
 	wgBuild.Add(1)
-	go func() {
-		defer wgBuild.Done()
+	go func(id *string, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
 
-		id, err := uuid.NewRandom()
+		i, err := uuid.NewRandom()
 		if err != nil {
-			s.logger.Error(fmt.Sprintf("failed to create uuid for username/email %s", cmd.Username), "err", err.Error())
-			buildErrChan <- errors.New(BuildUserErrMsg)
+			msg := fmt.Sprintf("failed to create uuid for username/email %s", cmd.Username)
+			s.logger.Error(msg, "err", err.Error())
+			ch <- errors.New(msg)
 		}
-		idChan <- id
-	}()
+
+		*id = i.String()
+	}(&id, buildErrChan, &wgBuild)
+
+	// build universal user key
+	wgBuild.Add(1)
+	go func(key *string, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		k, err := uuid.NewRandom()
+		if err != nil {
+			msg := fmt.Sprintf("failed to create user key for username/email %s: %v", cmd.Username, err)
+			s.logger.Error(msg, "err", err.Error())
+			ch <- errors.New(msg)
+		}
+
+		encrypted, err := s.cipher.EncryptServiceData(k.String())
+		if err != nil {
+			msg := fmt.Sprintf("%s user key for username/email %s: %v", FieldLevelEncryptErrMsg, cmd.Username, err)
+			s.logger.Error(msg, "err", err.Error())
+			ch <- errors.New(msg)
+		}
+
+		*key = encrypted
+	}(&userKey, buildErrChan, &wgBuild)
 
 	// encrypt username
 	wgBuild.Add(1)
-	go func() {
-		defer wgBuild.Done()
+	go func(user *string, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
 
-		username, err := s.cipher.EncryptServiceData(cmd.Username)
+		encrypted, err := s.cipher.EncryptServiceData(cmd.Username)
 		if err != nil {
 			msg := fmt.Sprintf("%s username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			s.logger.Error(msg, "err", err.Error())
-			buildErrChan <- errors.New(msg)
+			ch <- errors.New(msg)
 		}
-		usernameChan <- username
-	}()
+
+		*user = encrypted
+	}(&username, buildErrChan, &wgBuild)
 
 	// bcrypt hash password
 	wgBuild.Add(1)
-	go func() {
+	go func(pw *string, ch chan error, wg *sync.WaitGroup) {
 		defer wgBuild.Done()
 
-		password, err := bcrypt.GenerateFromPassword([]byte(cmd.Password), 13)
+		hashed, err := bcrypt.GenerateFromPassword([]byte(cmd.Password), 13)
 		if err != nil {
 			msg := fmt.Sprintf("failed to generate bcrypt password hash for username/email (%s)", cmd.Username)
 			s.logger.Error(msg, "err", err.Error())
-			buildErrChan <- errors.New(msg)
+			ch <- errors.New(msg)
 		}
-		passwordChan <- string(password)
-	}()
+
+		*pw = string(hashed)
+	}(&password, buildErrChan, &wgBuild)
 
 	// encrypt firstname
 	wgBuild.Add(1)
-	go func() {
-		defer wgBuild.Done()
+	go func(first *string, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
 
-		first, err := s.cipher.EncryptServiceData(cmd.Firstname)
+		encrypted, err := s.cipher.EncryptServiceData(cmd.Firstname)
 		if err != nil {
 			msg := fmt.Sprintf("%s first name for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			s.logger.Error(msg, "err", err.Error())
-			buildErrChan <- errors.New(msg)
+			ch <- errors.New(msg)
 		}
-		firstnameChan <- first
 
-	}()
+		*first = encrypted
+	}(&firstname, buildErrChan, &wgBuild)
 
 	// encrypt lastname
 	wgBuild.Add(1)
-	go func() {
-		defer wgBuild.Done()
+	go func(last *string, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
 
-		last, err := s.cipher.EncryptServiceData(cmd.Lastname)
+		encrypted, err := s.cipher.EncryptServiceData(cmd.Lastname)
 		if err != nil {
 			msg := fmt.Sprintf("%s lastname for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			s.logger.Error(msg, "err", err.Error())
-			buildErrChan <- errors.New(msg)
+			ch <- errors.New(msg)
 		}
-		lastnameChan <- last
-	}()
+
+		*last = encrypted
+	}(&lastname, buildErrChan, &wgBuild)
 
 	// encrypt dob
 	wgBuild.Add(1)
-	go func() {
-		defer wgBuild.Done()
+	go func(dob *string, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
 
-		dob, err := s.cipher.EncryptServiceData(cmd.Birthdate)
+		encrypted, err := s.cipher.EncryptServiceData(cmd.Birthdate)
 		if err != nil {
 			msg := fmt.Sprintf("%s dob for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			s.logger.Error(msg, "err", err.Error())
-			buildErrChan <- errors.New(msg)
+			ch <- errors.New(msg)
 		}
-		dobChan <- dob
-	}()
 
-	go func() {
-		wgBuild.Wait()
-		close(idChan)
-		close(usernameChan)
-		close(passwordChan)
-		close(firstnameChan)
-		close(lastnameChan)
-		close(dobChan)
-		close(buildErrChan)
-	}()
+		*dob = encrypted
+	}(&dob, buildErrChan, &wgBuild)
+
+	// wait for all build operations to complete
+	wgBuild.Wait()
+	close(buildErrChan)
 
 	// if any build errors, aggregate and return
-	if len(buildErrChan) > 0 {
+	errCount = len(buildErrChan)
+	if errCount > 0 {
 		var builder strings.Builder
 		count := 0
 		for e := range buildErrChan {
 			builder.WriteString(e.Error())
-			if len(buildErrChan) > 1 && count < len(buildErrChan)-1 {
+			if errCount > 1 && count < errCount-1 {
 				builder.WriteString("; ")
 			}
 			count++
@@ -263,23 +309,16 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		return errors.New(builder.String())
 	}
 
-	// get uuid and encrypted values from channels
-	id := <-idChan
-	username := <-usernameChan
-	password := <-passwordChan
-	first := <-firstnameChan
-	last := <-lastnameChan
-	dob := <-dobChan
-
-	createdAt := time.Now()
+	createdAt := time.Now().UTC()
 
 	user := types.UserAccount{
-		Uuid:           id.String(),
+		Uuid:           id,
 		Username:       username,
+		UserKey:        userKey,
 		UserIndex:      index,
-		Password:       string(password),
-		Firstname:      first,
-		Lastname:       last,
+		Password:       password,
+		Firstname:      firstname,
+		Lastname:       lastname,
 		Birthdate:      dob,
 		CreatedAt:      createdAt.Format("2006-01-02 15:04:05"),
 		Enabled:        true, // this will change to false when email verification built
@@ -288,7 +327,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 	}
 
 	// insert user into database
-	query := "INSERT INTO account (uuid, username, user_index, password, firstname, lastname, birth_date, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	query := "INSERT INTO account (uuid, user_key, username, user_index, password, firstname, lastname, birth_date, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 	if err := s.db.InsertRecord(query, user); err != nil {
 		s.logger.Error(fmt.Sprintf("failed to insert (%s) user record into account table in db", username), "err", err.Error())
 		return errors.New(BuildUserErrMsg)
@@ -319,61 +358,61 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 	defaults := filterScopes(scopes, defaultScopes)
 
 	// insert xrefs
-	var wgXref sync.WaitGroup
-	xrefErrChan := make(chan error)
+	var (
+		wgXref      sync.WaitGroup
+		xrefErrChan = make(chan error)
+	)
 	for _, scope := range defaults {
 
 		wgXref.Add(1)
-		go func(scope types.Scope) {
-			defer wgXref.Done()
+		go func(id, created string, scope types.Scope, ch chan error, wg *sync.WaitGroup) {
+			defer wg.Done()
 
 			xref := types.AccountScopeXref{
-				Id:          0,           // auto increment
-				AccountUuid: id.String(), // user id from above
+				Id:          0,  // auto increment
+				AccountUuid: id, // user id from above
 				ScopeUuid:   scope.Uuid,
-				CreatedAt:   createdAt.Format("2006-01-02 15:04:05"),
+				CreatedAt:   created,
 			}
 
 			query := "INSERT INTO account_scope (id, account_uuid, scope_uuid, created_at) VALUES (?, ?, ?, ?)"
 			if err := s.db.InsertRecord(query, xref); err != nil {
-				xrefErrChan <- fmt.Errorf("failed to create/persist xref record for %s - %s: %v", cmd.Username, scope.Name, err)
+				ch <- fmt.Errorf("failed to create/persist xref record for %s - %s: %v", cmd.Username, scope.Name, err)
 				return
 			}
 
 			s.logger.Info(fmt.Sprintf("user %s successfully assigned default scope %s", cmd.Username, scope.Name))
-		}(scope)
+		}(id, createdAt.Format("2006-01-02 15:04:05"), scope, xrefErrChan, &wgXref)
 	}
 
 	// Associate user with client
 	wgXref.Add(1)
-	go func() {
-		defer wgXref.Done()
-
-		c := <-clientChan
+	go func(id, created string, c types.IdentityClient, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
 
 		xref := types.UserAccountClientXref{
-			Id:        0,           // auto increment
-			AccountId: id.String(), // user id from above
-			ClientId:  c.Uuid,      // Note: client.Uuid is the identity client record's uuid, not the client_id
-			CreatedAt: createdAt.Format("2006-01-02 15:04:05"),
+			Id:        0,      // auto increment
+			AccountId: id,     // user id from above
+			ClientId:  c.Uuid, // Note: client.Uuid is the identity client record's uuid, not the client_id
+			CreatedAt: created,
 		}
 
 		query = "INSERT INTO account_client (id, account_uuid, client_uuid, created_at) VALUES (?, ?, ?, ?)"
 		if err := s.db.InsertRecord(query, xref); err != nil {
-			xrefErrChan <- fmt.Errorf("failed to associate user %s with client %s: %v", cmd.Username, c.ClientName, err)
+			ch <- fmt.Errorf("failed to associate user %s with client %s: %v", cmd.Username, c.ClientName, err)
 			return
 		}
 
 		s.logger.Info(fmt.Sprintf("user %s successfully associated with client %s", cmd.Username, ""))
-	}()
+	}(id, createdAt.Format("2006-01-02 15:04:05"), client, xrefErrChan, &wgXref)
 
-	go func() {
-		wgXref.Wait()
-		close(xrefErrChan)
-	}()
+	// wait for all xref operations to complete
+	wgXref.Wait()
+	close(xrefErrChan)
 
 	// return err if xref associations failed
-	if len(xrefErrChan) > 0 {
+	errCount = len(xrefErrChan)
+	if errCount > 0 {
 		for err := range xrefErrChan {
 			s.logger.Error(err.Error())
 		}

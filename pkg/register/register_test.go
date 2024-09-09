@@ -12,6 +12,7 @@ import (
 
 var (
 	RegistrationUuid       = "1234"
+	RegistrationUserKey    = "4567"
 	RegistrationUsername   = "darth.vader@empire.com"
 	RegistrationUserIndex  = "TK427"
 	RegistrationPassword   = "YouDontPower0fTheDarkSide!"
@@ -22,6 +23,8 @@ var (
 	RegisterEnabled        = true
 	RegisterAccountExpired = false
 	RegisterAccountLocked  = false
+
+	RegistrationClientId = "8d0b917a-6e0c-4600-b0fc-09739d6bd42b"
 
 	UsernameExists = "sheev.palpatine@empire.com"
 )
@@ -135,6 +138,7 @@ func TestRegister(t *testing.T) {
 				Firstname: RegistrationFirstname,
 				Lastname:  RegistrationLastname,
 				Birthdate: ReigstrationBirthdate,
+				ClientId:  RegistrationClientId,
 			},
 			expected: nil,
 		},
@@ -147,6 +151,7 @@ func TestRegister(t *testing.T) {
 				Firstname: RegistrationFirstname,
 				Lastname:  RegistrationLastname,
 				Birthdate: ReigstrationBirthdate,
+				ClientId:  RegistrationClientId,
 			},
 			expected: fmt.Errorf("invalid username: email must be between %d and %d characters in length", validate.EmailMin, validate.EmailMax),
 		},
@@ -159,6 +164,7 @@ func TestRegister(t *testing.T) {
 				Firstname: RegistrationFirstname,
 				Lastname:  RegistrationLastname,
 				Birthdate: ReigstrationBirthdate,
+				ClientId:  RegistrationClientId,
 			},
 			expected: errors.New("invalid username: email address must be valid format, eg., name@domain.com"),
 		},
@@ -171,6 +177,7 @@ func TestRegister(t *testing.T) {
 				Firstname: RegistrationFirstname,
 				Lastname:  RegistrationLastname,
 				Birthdate: ReigstrationBirthdate,
+				ClientId:  RegistrationClientId,
 			},
 			expected: fmt.Errorf("invalid password: password should be between %d and %d characters in length", validate.PasswordMin, validate.PasswordMax),
 		},
@@ -183,6 +190,7 @@ func TestRegister(t *testing.T) {
 				Firstname: RegistrationFirstname,
 				Lastname:  RegistrationLastname,
 				Birthdate: ReigstrationBirthdate,
+				ClientId:  RegistrationClientId,
 			},
 			expected: errors.New("invalid password: password must include at least 1 uppercase letter"),
 		},
@@ -195,6 +203,7 @@ func TestRegister(t *testing.T) {
 				Firstname: RegistrationFirstname,
 				Lastname:  RegistrationLastname,
 				Birthdate: ReigstrationBirthdate,
+				ClientId:  RegistrationClientId,
 			},
 			expected: errors.New("username unavailable"),
 		},
