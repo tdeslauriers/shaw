@@ -14,7 +14,7 @@ import (
 )
 
 // service scopes required
-var allowed []string = []string{"w:shaw:*"}
+var allowed []string = []string{"w:shaw:profile:*"}
 
 type Handler interface {
 	HandleRegistration(w http.ResponseWriter, r *http.Request)
@@ -54,6 +54,7 @@ func (h *handler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	if authorized, err := h.verifier.IsAuthorized(allowed, svcToken); !authorized {
 		h.logger.Error("registration handler failed to authorize service token", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
+		return
 	}
 
 	// decode request body: user registration cmd data
@@ -120,5 +121,11 @@ func (h *handler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(registered); err != nil {
 		h.logger.Error(fmt.Sprintf("failed to json encode/send user (%s) registration response body", registered.Username), "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "failed to send registration response body due to internal service error",
+		}
+		e.SendJsonErr(w)
+		return
 	}
 }

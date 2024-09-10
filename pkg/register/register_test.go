@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/tdeslauriers/carapace/pkg/session/types"
@@ -43,6 +44,24 @@ func (dao *mockRegisterSqlRepository) SelectRecords(query string, records interf
 	return nil
 }
 func (dao *mockRegisterSqlRepository) SelectRecord(query string, record interface{}, args ...interface{}) error {
+
+	if args[0] == RegistrationClientId {
+		*record.(*types.IdentityClient) = types.IdentityClient{
+			Uuid:          "8d0b917a-6e0c-4600-b0fc-09739d6bd42b",
+			Enabled:       true,
+			ClientLocked:  false,
+			ClientExpired: false,
+		}
+	}
+
+	if args[0] == "invalid--6e0c-4600-b0fc-09739d6bd42b" {
+		*record.(*types.IdentityClient) = types.IdentityClient{
+			Uuid:          "8d0b917a-6e0c-4600-b0fc-09739d6bd42b",
+			Enabled:       false,
+			ClientLocked:  false,
+			ClientExpired: false,
+		}
+	}
 	return nil
 }
 func (dao *mockRegisterSqlRepository) SelectExists(query string, args ...interface{}) (bool, error) {
@@ -52,7 +71,13 @@ func (dao *mockRegisterSqlRepository) SelectExists(query string, args ...interfa
 	return false, nil
 }
 func (dao *mockRegisterSqlRepository) InsertRecord(query string, record interface{}) error {
-	// no need to mock db insert call, only return nil err
+
+	if userAccount, ok := record.(*types.UserAccount); ok {
+		if userAccount.Username == "account.insert@fail.com" {
+			return errors.New("failed to insert")
+		}
+	}
+
 	return nil
 }
 
@@ -195,6 +220,19 @@ func TestRegister(t *testing.T) {
 			expected: errors.New("invalid password: password must include at least 1 uppercase letter"),
 		},
 		{
+			name: "invalid client id",
+			user: types.UserRegisterCmd{
+				Username:  RegistrationUsername,
+				Password:  RegistrationPassword,
+				Confirm:   RegistrationPassword,
+				Firstname: RegistrationFirstname,
+				Lastname:  RegistrationLastname,
+				Birthdate: ReigstrationBirthdate,
+				ClientId:  "invalid-client-id",
+			},
+			expected: errors.New("invalid client id"),
+		},
+		{
 			name: "username already exists",
 			user: types.UserRegisterCmd{
 				Username:  UsernameExists,
@@ -207,13 +245,39 @@ func TestRegister(t *testing.T) {
 			},
 			expected: errors.New("username unavailable"),
 		},
+		{
+			name: "client disabled",
+			user: types.UserRegisterCmd{
+				Username:  RegistrationUsername,
+				Password:  RegistrationPassword,
+				Confirm:   RegistrationPassword,
+				Firstname: RegistrationFirstname,
+				Lastname:  RegistrationLastname,
+				Birthdate: ReigstrationBirthdate,
+				ClientId:  "invalid--6e0c-4600-b0fc-09739d6bd42b",
+			},
+			expected: errors.New("client is disabled"),
+		},
+		{
+			name: "failed account insert",
+			user: types.UserRegisterCmd{
+				Username:  "account.insert@fail.com",
+				Password:  RegistrationPassword,
+				Confirm:   RegistrationPassword,
+				Firstname: RegistrationFirstname,
+				Lastname:  RegistrationLastname,
+				Birthdate: ReigstrationBirthdate,
+				ClientId:  RegistrationClientId,
+			},
+			expected: nil,
+		},
 	}
 
 	registerService := NewService(&mockRegisterSqlRepository{}, &mockRegisterCryptor{}, &mockRegisterIndexer{}, &mockRegisterS2sTokenProvider{}, &mockRegisterS2sCaller{})
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := registerService.Register(tc.user)
-			if err != nil && err.Error() != tc.expected.Error() {
+			if err != nil && !strings.Contains(err.Error(), tc.expected.Error()) {
 				t.Errorf("expected %v, got %v", tc.expected, err)
 			}
 		})

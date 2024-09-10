@@ -87,6 +87,7 @@ func (s *userAuthService) ValidateCredentials(username, password string) error {
 	qry := `
 		SELECT 
 			uuid,
+			user_key,
 			username,
 			user_index,
 			password,
