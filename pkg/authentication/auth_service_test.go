@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
 	"golang.org/x/crypto/bcrypt"
@@ -35,6 +34,236 @@ const (
 var (
 	RealScopes = "r:service-one:*,r:service-two:*"
 )
+
+func TestValidateCredentials(t *testing.T) {
+
+	testCases := []struct {
+		name     string
+		username string
+		password string
+		expected error
+	}{
+		{
+			name:     "valid credentials",
+			username: RealUsername,
+			password: RealPassword,
+			expected: nil,
+		},
+		{
+			name:     "invalid username",
+			username: "anikan.skywalker@jedi.com",
+			password: RealPassword,
+			expected: errors.New("invalid username or password"),
+		},
+		{
+			name:     "empty username",
+			username: "",
+			password: RealPassword,
+			expected: errors.New("invalid username or password"),
+		},
+		{
+			name:     "incorrect user index",
+			username: IncorrectUserIndex,
+			password: RealPassword,
+			expected: errors.New("failed to obtain blind index for user lookup"),
+		},
+		{
+			name:     "invalid password",
+			username: RealUsername,
+			password: "NowThisIsPodRacing!",
+			expected: errors.New("invalid username or password"),
+		},
+		{
+			name:     "empty password",
+			username: RealUsername,
+			password: "",
+			expected: errors.New("invalid username or password"),
+		},
+		{
+			name:     "user disabled",
+			username: DisabledUser,
+			password: RealPassword,
+			expected: errors.New("is disabled"),
+		},
+		{
+			name:     "account locked",
+			username: LockedUser,
+			password: RealPassword,
+			expected: errors.New("is locked"),
+		},
+		{
+			name:     "account expired",
+			username: ExpiredUser,
+			password: RealPassword,
+			expected: errors.New("is expired"),
+		},
+	}
+
+	authservice := NewAuthService(&mockAuthSqlRepository{}, nil, &mockAuthIndexer{}, &mockS2sTokenProvider{}, &mockS2sCaller{})
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := authservice.ValidateCredentials(tc.username, tc.password)
+			if err != nil && !strings.Contains(err.Error(), tc.expected.Error()) {
+				t.Errorf("expected %v, got %v", tc.expected, err)
+			}
+		})
+	}
+
+}
+
+func TestGetScopes(t *testing.T) {
+
+	testCases := []struct {
+		name        string
+		username    string
+		scopes      []types.Scope
+		expectedErr error
+	}{
+		{
+			name:     "valid scopes",
+			username: RealUsername,
+			scopes: []types.Scope{
+				{
+					Uuid:        "scope-one-uuid",
+					ServiceName: "service-one",
+					Scope:       "r:service-one:*",
+					Name:        "Read Blog",
+					Description: "read the blog",
+					Active:      true,
+				},
+				{
+					Uuid:        "scope-two-uuid",
+					ServiceName: "service-two",
+					Scope:       "r:service-two:*",
+					Name:        "Read Profile",
+					Description: "read the profile",
+					Active:      true,
+				},
+			},
+			expectedErr: nil,
+		},
+		{
+			name:        "failed index",
+			username:    IncorrectUserIndex,
+			scopes:      nil,
+			expectedErr: errors.New("no scopes found for user"),
+		},
+		{
+			name:        "invalid username",
+			username:    InvalidUsername,
+			scopes:      nil,
+			expectedErr: errors.New("no scopes found for user"),
+		},
+		{
+			name:        "empty username",
+			username:    "",
+			scopes:      nil,
+			expectedErr: errors.New("no scopes found for user"),
+		},
+	}
+
+	authService := NewAuthService(&mockAuthSqlRepository{}, nil, &mockAuthIndexer{}, &mockS2sTokenProvider{}, &mockS2sCaller{})
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			scopes, err := authService.GetScopes(tc.username, "")
+			if err != nil && !strings.Contains(err.Error(), tc.expectedErr.Error()) {
+				t.Errorf("expected %v, got %v", tc.expectedErr, err)
+			}
+			if len(scopes) != len(tc.scopes) {
+				t.Errorf("expected %d scopes, got %d", len(tc.scopes), len(scopes))
+			}
+		})
+	}
+}
+
+func TestMintToken(t *testing.T) {
+
+	testCases := []struct {
+		name        string
+		claims      jwt.Claims
+		jwt         *jwt.Token
+		expectedErr error
+	}{
+		{
+			name: "success - signed token",
+			claims: jwt.Claims{
+				Jti:       "1234",
+				Issuer:    util.ServiceName,
+				Subject:   RealUsername,
+				Audience:  types.BuildAudiences(RealScopes),
+				IssuedAt:  time.Now().UTC().Unix(),
+				NotBefore: time.Now().UTC().Unix(),
+				Expires:   time.Now().Add(AccessTokenDuration * time.Minute).Unix(),
+				Scopes:    RealScopes,
+			},
+			jwt: &jwt.Token{
+				Header: jwt.Header{
+					Alg: "HS256",
+					Typ: jwt.TokenType,
+				},
+				Claims: jwt.Claims{
+					Jti:       "1234",
+					Issuer:    util.ServiceName,
+					Subject:   RealUsername,
+					Audience:  types.BuildAudiences(RealScopes),
+					IssuedAt:  time.Now().UTC().Unix(),
+					NotBefore: time.Now().UTC().Unix(),
+					Expires:   time.Now().Add(AccessTokenDuration * time.Minute).Unix(),
+					Scopes:    RealScopes,
+				},
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "failure - triggering jwt.Mint error",
+			claims: jwt.Claims{
+				Jti:       "1234",
+				Issuer:    util.ServiceName,
+				Subject:   "trigger error",
+				Audience:  types.BuildAudiences(RealScopes),
+				IssuedAt:  time.Now().UTC().Unix(),
+				NotBefore: time.Now().UTC().Unix(),
+				Expires:   time.Now().Add(AccessTokenDuration * time.Minute).Unix(),
+				Scopes:    RealScopes,
+			},
+			jwt:         nil,
+			expectedErr: errors.New("failed to sign token jwt"),
+		},
+	}
+
+	authservice := NewAuthService(&mockAuthSqlRepository{}, &mockSigner{}, &mockAuthIndexer{}, &mockS2sTokenProvider{}, &mockS2sCaller{})
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			jot, err := authservice.MintToken(tc.claims)
+
+			if err != nil && !strings.Contains(err.Error(), tc.expectedErr.Error()) {
+				t.Errorf("expected %v, got %v", tc.expectedErr, err)
+			}
+			if err == nil {
+
+				if jot.BaseString == "" {
+					t.Errorf("expected base string to be populated")
+				}
+
+				if jot.Signature == nil {
+					t.Errorf("expected signature to be populated")
+				}
+
+				if jot.Token == "" {
+					t.Errorf("expected token to be populated")
+				} else {
+					segments := strings.Split(jot.Token, ".")
+					if len(segments) != 3 {
+						t.Errorf("expected token to have 3 segments, got %d", len(segments))
+					}
+				}
+
+			}
+		})
+	}
+}
 
 type mockAuthIndexer struct{}
 
@@ -274,391 +503,3 @@ func (c *mockS2sCaller) PostToService(endpoint, s2sToken, authToken string, cmd 
 	return nil
 }
 func (c *mockS2sCaller) RespondUpstreamError(err error, w http.ResponseWriter) {}
-
-func TestValidateCredentials(t *testing.T) {
-
-	testCases := []struct {
-		name     string
-		username string
-		password string
-		expected error
-	}{
-		{
-			name:     "valid credentials",
-			username: RealUsername,
-			password: RealPassword,
-			expected: nil,
-		},
-		{
-			name:     "invalid username",
-			username: "anikan.skywalker@jedi.com",
-			password: RealPassword,
-			expected: errors.New("invalid username or password"),
-		},
-		{
-			name:     "empty username",
-			username: "",
-			password: RealPassword,
-			expected: errors.New("invalid username or password"),
-		},
-		{
-			name:     "incorrect user index",
-			username: IncorrectUserIndex,
-			password: RealPassword,
-			expected: errors.New("failed to obtain blind index for user lookup"),
-		},
-		{
-			name:     "invalid password",
-			username: RealUsername,
-			password: "NowThisIsPodRacing!",
-			expected: errors.New("invalid username or password"),
-		},
-		{
-			name:     "empty password",
-			username: RealUsername,
-			password: "",
-			expected: errors.New("invalid username or password"),
-		},
-		{
-			name:     "user disabled",
-			username: DisabledUser,
-			password: RealPassword,
-			expected: errors.New("is disabled"),
-		},
-		{
-			name:     "account locked",
-			username: LockedUser,
-			password: RealPassword,
-			expected: errors.New("is locked"),
-		},
-		{
-			name:     "account expired",
-			username: ExpiredUser,
-			password: RealPassword,
-			expected: errors.New("is expired"),
-		},
-	}
-
-	authservice := NewService(&mockAuthSqlRepository{}, nil, &mockAuthIndexer{}, nil, &mockS2sTokenProvider{}, &mockS2sCaller{})
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := authservice.ValidateCredentials(tc.username, tc.password)
-			if err != nil && !strings.Contains(err.Error(), tc.expected.Error()) {
-				t.Errorf("expected %v, got %v", tc.expected, err)
-			}
-		})
-	}
-
-}
-
-func TestGetScopes(t *testing.T) {
-
-	testCases := []struct {
-		name        string
-		username    string
-		scopes      []types.Scope
-		expectedErr error
-	}{
-		{
-			name:     "valid scopes",
-			username: RealUsername,
-			scopes: []types.Scope{
-				{
-					Uuid:        "scope-one-uuid",
-					ServiceName: "service-one",
-					Scope:       "r:service-one:*",
-					Name:        "Read Blog",
-					Description: "read the blog",
-					Active:      true,
-				},
-				{
-					Uuid:        "scope-two-uuid",
-					ServiceName: "service-two",
-					Scope:       "r:service-two:*",
-					Name:        "Read Profile",
-					Description: "read the profile",
-					Active:      true,
-				},
-			},
-			expectedErr: nil,
-		},
-		{
-			name:        "failed index",
-			username:    IncorrectUserIndex,
-			scopes:      nil,
-			expectedErr: errors.New("no scopes found for user"),
-		},
-		{
-			name:        "invalid username",
-			username:    InvalidUsername,
-			scopes:      nil,
-			expectedErr: errors.New("no scopes found for user"),
-		},
-		{
-			name:        "empty username",
-			username:    "",
-			scopes:      nil,
-			expectedErr: errors.New("no scopes found for user"),
-		},
-	}
-
-	authService := NewService(&mockAuthSqlRepository{}, nil, &mockAuthIndexer{}, nil, &mockS2sTokenProvider{}, &mockS2sCaller{})
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			scopes, err := authService.GetScopes(tc.username, "")
-			if err != nil && !strings.Contains(err.Error(), tc.expectedErr.Error()) {
-				t.Errorf("expected %v, got %v", tc.expectedErr, err)
-			}
-			if len(scopes) != len(tc.scopes) {
-				t.Errorf("expected %d scopes, got %d", len(tc.scopes), len(scopes))
-			}
-		})
-	}
-}
-
-func TestMintToken(t *testing.T) {
-
-	testCases := []struct {
-		name        string
-		claims      jwt.Claims
-		jwt         *jwt.Token
-		expectedErr error
-	}{
-		{
-			name: "success - signed token",
-			claims: jwt.Claims{
-				Jti:       "1234",
-				Issuer:    util.ServiceName,
-				Subject:   RealUsername,
-				Audience:  types.BuildAudiences(RealScopes),
-				IssuedAt:  time.Now().UTC().Unix(),
-				NotBefore: time.Now().UTC().Unix(),
-				Expires:   time.Now().Add(AccessTokenDuration * time.Minute).Unix(),
-				Scopes:    RealScopes,
-			},
-			jwt: &jwt.Token{
-				Header: jwt.Header{
-					Alg: "HS256",
-					Typ: jwt.TokenType,
-				},
-				Claims: jwt.Claims{
-					Jti:       "1234",
-					Issuer:    util.ServiceName,
-					Subject:   RealUsername,
-					Audience:  types.BuildAudiences(RealScopes),
-					IssuedAt:  time.Now().UTC().Unix(),
-					NotBefore: time.Now().UTC().Unix(),
-					Expires:   time.Now().Add(AccessTokenDuration * time.Minute).Unix(),
-					Scopes:    RealScopes,
-				},
-			},
-			expectedErr: nil,
-		},
-		{
-			name: "failure - triggering jwt.Mint error",
-			claims: jwt.Claims{
-				Jti:       "1234",
-				Issuer:    util.ServiceName,
-				Subject:   "trigger error",
-				Audience:  types.BuildAudiences(RealScopes),
-				IssuedAt:  time.Now().UTC().Unix(),
-				NotBefore: time.Now().UTC().Unix(),
-				Expires:   time.Now().Add(AccessTokenDuration * time.Minute).Unix(),
-				Scopes:    RealScopes,
-			},
-			jwt:         nil,
-			expectedErr: errors.New("failed to sign jwt"),
-		},
-	}
-
-	authservice := NewService(&mockAuthSqlRepository{}, &mockSigner{}, &mockAuthIndexer{}, nil, &mockS2sTokenProvider{}, &mockS2sCaller{})
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			jot, err := authservice.MintToken(tc.claims)
-
-			if err != nil && !strings.Contains(err.Error(), tc.expectedErr.Error()) {
-				t.Errorf("expected %v, got %v", tc.expectedErr, err)
-			}
-			if err == nil {
-
-				if jot.BaseString == "" {
-					t.Errorf("expected base string to be populated")
-				}
-
-				if jot.Signature == nil {
-					t.Errorf("expected signature to be populated")
-				}
-
-				if jot.Token == "" {
-					t.Errorf("expected token to be populated")
-				} else {
-					segments := strings.Split(jot.Token, ".")
-					if len(segments) != 3 {
-						t.Errorf("expected token to have 3 segments, got %d", len(segments))
-					}
-				}
-
-			}
-		})
-	}
-}
-
-func TestPersistRefresh(t *testing.T) {
-
-	testCases := []struct {
-		name        string
-		refresh     types.UserRefresh
-		expectedErr error
-	}{
-		{
-			name: "success - refresh token persisted",
-			refresh: types.UserRefresh{
-				ClientId:     "1234",
-				RefreshToken: "1234-5678-9012-3456",
-				Username:     RealUsername,
-				CreatedAt:    data.CustomTime{Time: time.Now().UTC()},
-				Revoked:      false,
-			},
-			expectedErr: nil,
-		},
-		{
-			name: "failure - failed to encrypt refresh token",
-			refresh: types.UserRefresh{
-				ClientId:     "1234",
-				RefreshToken: "failed to encrypt",
-				Username:     RealUsername,
-				CreatedAt:    data.CustomTime{Time: time.Now().UTC()},
-				Revoked:      false,
-			},
-			expectedErr: errors.New("failed to encrypt"),
-		},
-		{
-			name: "failure - multiple encryption failures",
-			refresh: types.UserRefresh{
-				ClientId:     "failed to ecncrypt",
-				RefreshToken: "failed to encrypt",
-				Username:     RealUsername,
-				CreatedAt:    data.CustomTime{Time: time.Now().UTC()},
-				Revoked:      false,
-			},
-			expectedErr: errors.New("failed to encrypt"),
-		},
-		{
-			name: "failure - failed to persist refresh token",
-			refresh: types.UserRefresh{
-				ClientId:     "1234",
-				RefreshToken: "failed to persist",
-				Username:     RealUsername,
-				CreatedAt:    data.CustomTime{Time: time.Now().UTC()},
-				Revoked:      false,
-			},
-			expectedErr: errors.New("failed to insert"),
-		},
-	}
-
-	authservice := NewService(&mockAuthSqlRepository{}, nil, &mockAuthIndexer{}, &mockCryptor{}, &mockS2sTokenProvider{}, &mockS2sCaller{})
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := authservice.PersistRefresh(tc.refresh)
-			if err != nil && !strings.Contains(err.Error(), tc.expectedErr.Error()) {
-				t.Errorf("expected %v, got %v", tc.expectedErr, err)
-			}
-		})
-	}
-
-}
-
-func TestDestroyToken(t *testing.T) {
-
-	testCases := []struct {
-		name        string
-		refresh     string
-		expectedErr error
-	}{
-		{
-			name:        "success - refresh token destroyed",
-			refresh:     "valid-refresh-token",
-			expectedErr: nil,
-		},
-		{
-			name:        "failure - invalid refresh token",
-			refresh:     "too-short",
-			expectedErr: errors.New("invalid refresh token"),
-		},
-		{
-			name:        "failure - cannot generate blind index",
-			refresh:     IncorrectUserIndex,
-			expectedErr: errors.New("failed to generate blind index"),
-		},
-		{
-			name:        "faiure - record does not exist",
-			refresh:     "record-does-not-exist",
-			expectedErr: errors.New("record does not exist"),
-		},
-		{
-			name:        "failure - failed to delete record",
-			refresh:     "failed-to-delete-record",
-			expectedErr: errors.New("failed to delete"),
-		},
-	}
-
-	authservice := NewService(&mockAuthSqlRepository{}, nil, &mockAuthIndexer{}, nil, nil, nil)
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := authservice.DestroyRefresh(tc.refresh)
-			if err != nil && !strings.Contains(err.Error(), tc.expectedErr.Error()) {
-				t.Errorf("expected %v, got %v", tc.expectedErr, err)
-			}
-		})
-	}
-}
-
-func TestRevokeToken(t *testing.T) {
-
-	testCases := []struct {
-		name        string
-		refresh     string
-		expectedErr error
-	}{
-		{
-			name:        "success - refresh token revoked",
-			refresh:     "valid-refresh-token",
-			expectedErr: nil,
-		},
-		{
-			name:        "failure - invalid refresh token",
-			refresh:     "too-short",
-			expectedErr: errors.New("invalid refresh token"),
-		},
-		{
-			name:        "failure - cannot generate blind index",
-			refresh:     IncorrectUserIndex,
-			expectedErr: errors.New("failed to generate blind index"),
-		},
-		{
-			name:        "faiure - record does not exist",
-			refresh:     "record-does-not-exist",
-			expectedErr: errors.New("record does not exist"),
-		},
-		{
-			name:        "failure - failed to revoke refresh",
-			refresh:     "failed-to-update-record",
-			expectedErr: errors.New("failed to revoke"),
-		},
-	}
-
-	authservice := NewService(&mockAuthSqlRepository{}, nil, &mockAuthIndexer{}, nil, nil, nil)
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := authservice.RevokeRefresh(tc.refresh)
-			if err != nil && !strings.Contains(err.Error(), tc.expectedErr.Error()) {
-				t.Errorf("expected %v, got %v", tc.expectedErr, err)
-			}
-		})
-	}
-}

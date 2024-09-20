@@ -7,6 +7,7 @@ const (
 	ComponentIdentity  = "identity"
 	ComponentRegister  = "user registration"
 	ComponentLogin     = "login"
+	ComponentAuth      = "authentication"
 	ComponentOauthFlow = "oauth flow"
 	ComponentCallback  = "callback"
 	ComponentRefresh   = "refresh"

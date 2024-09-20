@@ -49,7 +49,54 @@ type handler struct {
 // HandleRefresh handles the refresh request from users:
 // returns a new access token, and a replacement refresh token
 func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
-	// TODO: implement refresh token logic
+
+	if r.Method != "POST" {
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusMethodNotAllowed,
+			Message:    "only POST http method allowed",
+		}
+		e.SendJsonErr(w)
+		return
+	}
+
+	// validate service token
+	svcToken := r.Header.Get("Service-Authorization")
+	if authorized, err := h.verifier.IsAuthorized(allowed, svcToken); !authorized {
+		h.logger.Error("login handler failed to authorize service token for /refresh", "err", err.Error())
+		connect.RespondAuthFailure(connect.S2s, err, w)
+		return
+	}
+
+	// refresh cmd
+	var cmd types.UserRefreshCmd
+	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+		h.logger.Error("failed to decode refresh cmd", "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusBadRequest,
+			Message:    "failed to decode refresh command request body",
+		}
+		e.SendJsonErr(w)
+		return
+	}
+
+	// lightweight input validation
+	if err := cmd.ValidateCmd(); err != nil {
+		h.logger.Error("user refresh cmd validation failed", "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnprocessableEntity,
+			Message:    err.Error(),
+		}
+		e.SendJsonErr(w)
+		return
+	}
+
+	// retreive refresh token
+	refresh, err := h.auth.GetRefresh(cmd.RefreshToken)
+	if err != nil {
+		h.logger.Error("failed to get user refresh token", "err", err.Error())
+		h.auth.HandleServiceErr(err, w)
+		return
+	}
 }
 
 // HandleDestroy handles the destroy refresh token request from users
@@ -67,7 +114,7 @@ func (h *handler) HandleDestroy(w http.ResponseWriter, r *http.Request) {
 	// validate service token
 	svcToken := r.Header.Get("Service-Authorization")
 	if authorized, err := h.verifier.IsAuthorized(allowed, svcToken); !authorized {
-		h.logger.Error("login handler failed to authorize service token", "err", err.Error())
+		h.logger.Error("login handler failed to authorize service token for /refresh/destroy", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
