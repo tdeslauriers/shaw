@@ -12,4 +12,5 @@ const (
 	ComponentCallback  = "callback"
 	ComponentRefresh   = "refresh"
 	ComponentScopes    = "scopes"
+	ComponentUser      = "user"
 )

@@ -186,6 +186,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		ClientId:     userData.ClientId,
 		RefreshToken: refresh.String(),
 		Username:     userData.Username, // username index created by persist refresh function
+		Scopes:       userData.Scopes,
 		CreatedAt:    data.CustomTime{Time: time.Unix(accessToken.Claims.IssuedAt, 0).UTC()},
 		Revoked:      false,
 	}

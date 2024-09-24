@@ -16,6 +16,7 @@ import (
 	"shaw/pkg/oauth"
 	"shaw/pkg/refresh"
 	"shaw/pkg/register"
+	"shaw/pkg/user"
 	"time"
 
 	"github.com/tdeslauriers/carapace/pkg/config"
@@ -154,33 +155,19 @@ func New(config config.Config) (Identity, error) {
 	// user jwt verifier
 	//TODO: implement user jwt verifier
 
-	// auth service
-	authService := authentication.NewService(repository, signer, indexer, cryptor, s2sProvider, s2sCaller)
-
-	// oauth flow service
-	oathService := oauth.NewService(repository, indexer, cryptor)
-
-	// registration service
-	regService := register.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller)
-
-	// refresh service
-	// TODO: implement refresh service
-
 	// password change service
 	// TODO: implement password change service
-
-	// clean up: database
-	cleanup := schedule.NewCleanup(repository)
 
 	return &identity{
 		config:          config,
 		serverTls:       serverTlsConfig,
 		repository:      repository,
 		s2sVerifier:     s2sVerifier,
-		authService:     authService,
-		oathService:     oathService,
-		registerService: regService,
-		cleanup:         cleanup,
+		authService:     authentication.NewService(repository, signer, indexer, cryptor, s2sProvider, s2sCaller),
+		oathService:     oauth.NewService(repository, indexer, cryptor),
+		registerService: register.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller),
+		userService:     user.NewService(repository, indexer, cryptor),
+		cleanup:          schedule.NewCleanup(repository),
 		// user token verifier
 		// refresh service
 		// password change service
@@ -199,6 +186,7 @@ type identity struct {
 	authService     authentication.Service
 	oathService     oauth.Service
 	registerService register.Service
+	userService     user.Service
 	cleanup         schedule.Cleanup
 	// user token verifier
 	// refresh service
@@ -219,7 +207,7 @@ func (i *identity) Run() error {
 	registerHandler := register.NewHandler(i.registerService, i.s2sVerifier)
 	loginHandler := login.NewHandler(i.authService, i.oathService, i.s2sVerifier)
 	callbackHandler := callback.NewHandler(i.s2sVerifier, i.authService, i.oathService)
-	refreshHandler := refresh.NewHandler(i.authService, i.s2sVerifier)
+	refreshHandler := refresh.NewHandler(i.authService, i.s2sVerifier, i.userService)
 
 	// password change handler
 	// TODO: implement password change handler

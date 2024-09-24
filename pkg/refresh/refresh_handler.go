@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"shaw/internal/util"
 	"shaw/pkg/authentication"
+	"shaw/pkg/user"
+	"time"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
@@ -26,10 +28,11 @@ type Handler interface {
 	HandleDestroy(w http.ResponseWriter, r *http.Request)
 }
 
-func NewHandler(a authentication.Service, v jwt.Verifier) Handler {
+func NewHandler(a authentication.Service, v jwt.Verifier, u user.Service) Handler {
 	return &handler{
 		auth:     a,
 		verifier: v,
+		user:     u,
 
 		logger: slog.Default().
 			With(slog.String(util.ComponentKey, util.ComponentRefresh)),
@@ -42,6 +45,7 @@ var _ Handler = (*handler)(nil)
 type handler struct {
 	auth     authentication.Service
 	verifier jwt.Verifier
+	user     user.Service
 
 	logger *slog.Logger
 }
@@ -91,12 +95,74 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// retreive refresh token
-	refresh, err := h.auth.GetRefresh(cmd.RefreshToken)
+	refresh, err := h.auth.GetRefreshToken(cmd.RefreshToken)
 	if err != nil {
 		h.logger.Error("failed to get user refresh token", "err", err.Error())
 		h.auth.HandleServiceErr(err, w)
 		return
 	}
+
+	// will also be used in access token + new refresh token generation
+	now := time.Now().UTC()
+
+	// check if refresh token is expired
+	if refresh.CreatedAt.Add(time.Duration(12 * time.Hour)).Before(now) {
+		h.logger.Error("user refresh token xxxxxx-%s is expired for user %s", refresh.RefreshToken[len(refresh.RefreshToken)-6:], refresh.Username)
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    "refresh token is expired",
+		}
+		e.SendJsonErr(w)
+		return
+	}
+
+	// get user data
+	u, err := h.user.GetByUsername(refresh.Username)
+	if err != nil {
+		h.logger.Error(fmt.Sprintf("failed to get user %s data", refresh.Username), "err", err.Error())
+		h.user.HandleServiceErr(err, w)
+		return
+	}
+
+	// check if user is (still) active
+	if active, err := h.isActiveUser(u); !active {
+		h.logger.Error(fmt.Sprintf("user %s is not active", u.Username), "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    err.Error(),
+		}
+		e.SendJsonErr(w)
+		return
+	}
+
+	// TODO: mint new access token
+
+	// TODO: mint new refresh token
+
+	// TODO: persist new refresh token
+
+	// TODO: destroy old refresh token
+
+	// TODO: respond with success + new tokens
+
+}
+
+// isActiveUser is a helper method checks if the user is active
+func (h *handler) isActiveUser(u *user.User) (bool, error) {
+
+	if !u.Enabled {
+		return false, fmt.Errorf("%s: %s", user.ErrUserDisabled, u.Username)
+	}
+
+	if u.AccountLocked {
+		return false, fmt.Errorf("%s: %s", user.ErrUserLocked, u.Username)
+	}
+
+	if u.AccountExpired {
+		return false, fmt.Errorf("%s: %s", user.ErrUserExpired, u.Username)
+	}
+
+	return true, nil
 }
 
 // HandleDestroy handles the destroy refresh token request from users

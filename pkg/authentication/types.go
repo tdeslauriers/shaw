@@ -18,10 +18,12 @@ const (
 	ErrEncryptClientId = "failed to encrypt client id"
 	ErrEncryptRefresh  = "failed to encrypt refresh token"
 	ErrEncryptUsername = "failed to encrypt username"
+	ErrEncryptScopes   = "failed to encrypt scopes"
 
 	ErrDecryptClientId = "failed to decrypt client id"
 	ErrDecryptRefresh  = "failed to decrypt refresh token"
 	ErrDecryptUsername = "failed to decrypt username"
+	ErrDecryptScopes   = "failed to decrypt scopes"
 )
 
 // AccountScope is a model for account_scope xref table

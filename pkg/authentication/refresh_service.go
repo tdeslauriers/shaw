@@ -51,6 +51,7 @@ func (r *refresh) GetRefreshToken(refreshToken string) (*types.UserRefresh, erro
 				refresh_token, 
 				username,
 				username_index,
+				scopes,
 				created_at,
 				revoked
 			FROM refresh 
@@ -71,12 +72,14 @@ func (r *refresh) GetRefreshToken(refreshToken string) (*types.UserRefresh, erro
 		decryptedRefresh  string
 		decryptedClientId string
 		decryptedUsername string
+		decryptedScopes   string
 	)
 
 	wg.Add(3)
 	go r.decrypt(refresh.ClientId, ErrDecryptClientId, &decryptedClientId, errChan, &wg)
 	go r.decrypt(refresh.RefreshToken, ErrDecryptRefresh, &decryptedRefresh, errChan, &wg)
 	go r.decrypt(refresh.Username, ErrDecryptUsername, &decryptedUsername, errChan, &wg)
+	go r.decrypt(refresh.Scopes, ErrDecryptScopes, &decryptedScopes, errChan, &wg)
 
 	wg.Wait()
 	close(errChan)
@@ -103,6 +106,7 @@ func (r *refresh) GetRefreshToken(refreshToken string) (*types.UserRefresh, erro
 		RefreshToken:  decryptedRefresh,
 		Username:      decryptedUsername,
 		UsernameIndex: refresh.UsernameIndex,
+		Scopes:        decryptedScopes,
 		CreatedAt:     refresh.CreatedAt,
 		Revoked:       refresh.Revoked,
 	}, nil
@@ -132,6 +136,7 @@ func (r *refresh) PersistRefresh(ur types.UserRefresh) error {
 		encryptedClientId string
 		encryptedRefresh  string
 		encryptedUsername string
+		encryptedScopes   string
 		usernameIndex     string
 	)
 	errChan := make(chan error, 6)
@@ -150,10 +155,11 @@ func (r *refresh) PersistRefresh(ur types.UserRefresh) error {
 	}(&id, errChan, &wgRecord)
 
 	// encrypt client id, refresh token, and username
-	wgRecord.Add(3)
+	wgRecord.Add(4)
 	go r.encrypt(ur.ClientId, fmt.Sprintf("%s %s", ErrEncryptClientId, ur.ClientId), &encryptedClientId, errChan, &wgRecord)
 	go r.encrypt(ur.RefreshToken, fmt.Sprintf("%s xxxxxx-%s", ErrEncryptRefresh, ur.RefreshToken[len(ur.RefreshToken)-6:]), &encryptedRefresh, errChan, &wgRecord)
 	go r.encrypt(ur.Username, fmt.Sprintf("%s %s", ErrEncryptUsername, ur.Username), &encryptedUsername, errChan, &wgRecord)
+	go r.encrypt(ur.Scopes, fmt.Sprintf("%s for user %s", ErrEncryptScopes, ur.Username), &encryptedScopes, errChan, &wgRecord)
 
 	// create blind indices for refresh and username
 	wgRecord.Add(2)
@@ -186,9 +192,10 @@ func (r *refresh) PersistRefresh(ur types.UserRefresh) error {
 	ur.RefreshToken = encryptedRefresh
 	ur.Username = encryptedUsername
 	ur.UsernameIndex = usernameIndex
+	ur.Scopes = encryptedScopes
 
 	// insert record
-	qry := `INSERT INTO refresh (uuid, refresh_index, client_id, refresh_token, username, username_index, created_at, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	qry := `INSERT INTO refresh (uuid, refresh_index, client_id, refresh_token, username, username_index, scopes, created_at, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	if err := r.db.InsertRecord(qry, ur); err != nil {
 		return fmt.Errorf("failed to insert refresh token record: %v", err)
 	}

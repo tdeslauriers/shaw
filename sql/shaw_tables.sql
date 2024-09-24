@@ -1,7 +1,6 @@
 -- Account table
 CREATE TABLE account (
     uuid CHAR(36) PRIMARY KEY,
-    user_key VARCHAR(128) NOT NULL,
     username VARCHAR(128) NOT NULL,
     user_index VARCHAR(128) NOT NULL,
     password VARCHAR(255) NOT NULL,
@@ -36,6 +35,7 @@ CREATE TABLE refresh (
     refresh_token VARCHAR(128) NOT NULL,
     username VARCHAR(128) NOT NULL,
     username_index VARCHAR(128) NOT NULL,
+    scopes VARCHAR(1024) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     revoked BOOLEAN NOT NULL
 );
