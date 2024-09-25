@@ -24,6 +24,9 @@ type UserService interface {
 
 	// GetUserByUsername retrieves user data by username from the database.
 	GetByUsername(username string) (*User, error)
+
+	// IsActive checks if the user is active.
+	IsActive(u *User) (bool, error)
 }
 
 type UserErrService interface {
@@ -162,4 +165,22 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 		e.SendJsonErr(w)
 		return
 	}
+}
+
+// isActiveUser is a helper method checks if the user is active
+func (s *service) IsActive(u *User) (bool, error) {
+
+	if !u.Enabled {
+		return false, fmt.Errorf("%s: %s", ErrUserDisabled, u.Username)
+	}
+
+	if u.AccountLocked {
+		return false, fmt.Errorf("%s: %s", ErrUserLocked, u.Username)
+	}
+
+	if u.AccountExpired {
+		return false, fmt.Errorf("%s: %s", ErrUserExpired, u.Username)
+	}
+
+	return true, nil
 }

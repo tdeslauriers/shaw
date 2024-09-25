@@ -167,7 +167,7 @@ func New(config config.Config) (Identity, error) {
 		oathService:     oauth.NewService(repository, indexer, cryptor),
 		registerService: register.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller),
 		userService:     user.NewService(repository, indexer, cryptor),
-		cleanup:          schedule.NewCleanup(repository),
+		cleanup:         schedule.NewCleanup(repository),
 		// user token verifier
 		// refresh service
 		// password change service

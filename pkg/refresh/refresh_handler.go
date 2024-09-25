@@ -10,8 +10,11 @@ import (
 	"shaw/pkg/user"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/tdeslauriers/carapace/pkg/connect"
+	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
+	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
 )
 
@@ -125,7 +128,7 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// check if user is (still) active
-	if active, err := h.isActiveUser(u); !active {
+	if active, err := h.user.IsActive(u); !active {
 		h.logger.Error(fmt.Sprintf("user %s is not active", u.Username), "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
@@ -135,34 +138,105 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: mint new access token
-
-	// TODO: mint new refresh token
-
-	// TODO: persist new refresh token
-
-	// TODO: destroy old refresh token
-
-	// TODO: respond with success + new tokens
-
-}
-
-// isActiveUser is a helper method checks if the user is active
-func (h *handler) isActiveUser(u *user.User) (bool, error) {
-
-	if !u.Enabled {
-		return false, fmt.Errorf("%s: %s", user.ErrUserDisabled, u.Username)
+	// set up fields for new access token
+	jti, err := uuid.NewRandom()
+	if err != nil {
+		h.logger.Error("failed to generate jti for access token", "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "failed to generate jti for access token",
+		}
+		e.SendJsonErr(w)
+		return
 	}
 
-	if u.AccountLocked {
-		return false, fmt.Errorf("%s: %s", user.ErrUserLocked, u.Username)
+	// build access token claims
+	accessClaims := jwt.Claims{
+		Jti:       jti.String(),
+		Issuer:    util.ServiceName,
+		Subject:   u.Username,
+		Audience:  types.BuildAudiences(refresh.Scopes),
+		IssuedAt:  now.Unix(),
+		NotBefore: now.Unix(),
+		Expires:   now.Add(authentication.AccessTokenDuration * time.Minute).Unix(),
+		Scopes:    refresh.Scopes,
 	}
 
-	if u.AccountExpired {
-		return false, fmt.Errorf("%s: %s", user.ErrUserExpired, u.Username)
+	// mint jwt access token
+	accessToken, err := h.auth.MintToken(accessClaims)
+	if err != nil {
+		h.logger.Error(fmt.Sprintf("failed to mint new access token for refresh uuid %s. username %s", refresh.Uuid, u.Username), "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "failed to mint new access token",
+		}
+		e.SendJsonErr(w)
+		return
 	}
 
-	return true, nil
+	// not typical to provide a new ID token when refreshing an access token
+	// because no new user direct login/authentication has occurred
+
+	// generate new refresh token
+	refreshToken, err := uuid.NewRandom()
+	if err != nil {
+		h.logger.Error("failed to generate a new refresh token", "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "failed to generate a new refresh token",
+		}
+		e.SendJsonErr(w)
+		return
+	}
+
+	// set up new refresh token record for persistence
+	persist := types.UserRefresh{
+		ClientId:     refresh.ClientId,
+		RefreshToken: refreshToken.String(),
+		Username:     u.Username,
+		Scopes:       refresh.Scopes,
+		CreatedAt:    data.CustomTime{Time: time.Unix(now.Unix(), 0).UTC()},
+		Revoked:      false,
+	}
+
+	// persist new refresh token
+	go func(r types.UserRefresh) {
+		if err := h.auth.PersistRefresh(r); err != nil {
+			h.logger.Error(fmt.Sprintf("failed to persist new refresh token for user %s", u.Username), "err", err.Error())
+			return
+		}
+	}(persist)
+
+	// opportunistically delete old refresh token
+	go func(r types.UserRefresh) {
+		if err := h.auth.DestroyRefresh(r.RefreshToken); err != nil {
+			h.logger.Error(fmt.Sprintf("failed to destroy old refresh uuid %s for user %s", r.Uuid, u.Username), "err", err.Error())
+			return
+		}
+	}(*refresh)
+
+	// respond with success + new tokens
+	authz := provider.UserAuthorization{
+		Jti:                jti.String(),
+		AccessToken:        accessToken.Token,
+		TokenType:          "Bearer",
+		AccessTokenExpires: data.CustomTime{Time: time.Unix(accessClaims.Expires, 0).UTC()},
+		Refresh:            refreshToken.String(),
+		// original expiry is maintained to prevent endless refresh token generation
+		RefreshExpires: data.CustomTime{Time: time.Unix(refresh.CreatedAt.Add(authentication.RefreshDuration*time.Hour).Unix(), 0).UTC()},
+	}
+
+	// respond with success + new tokens
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(authz); err != nil {
+		h.logger.Error("failed to json encode refresh response body object", "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "failed to encode response",
+		}
+		e.SendJsonErr(w)
+		return
+	}
 }
 
 // HandleDestroy handles the destroy refresh token request from users
