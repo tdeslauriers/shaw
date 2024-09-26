@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/tdeslauriers/carapace/pkg/profile"
 )
 
 const (
@@ -20,13 +22,13 @@ func TestGetByUsername(t *testing.T) {
 	testCases := []struct {
 		name         string
 		username     string
-		expectedUser *User
+		expectedUser *profile.User
 		expectedErr  error
 	}{
 		{
 			name:     "success - valid username",
 			username: "darth.vader@empire.com",
-			expectedUser: &User{
+			expectedUser: &profile.User{
 				Id:        "uuid-1",
 				Username:  "darth.vader@empire.com",
 				Firstname: "Darth",
@@ -74,7 +76,7 @@ type mockUserSqlRepository struct{}
 
 func (m *mockUserSqlRepository) SelectRecord(query string, record interface{}, args ...interface{}) error {
 	switch r := record.(type) {
-	case *User:
+	case *profile.User:
 		switch args[0] {
 		case "index-" + ValidUsername:
 			r.Id = "uuid-1"

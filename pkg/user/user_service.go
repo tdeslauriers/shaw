@@ -12,6 +12,7 @@ import (
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
+	"github.com/tdeslauriers/carapace/pkg/profile"
 )
 
 type Service interface {
@@ -23,10 +24,10 @@ type Service interface {
 type UserService interface {
 
 	// GetUserByUsername retrieves user data by username from the database.
-	GetByUsername(username string) (*User, error)
+	GetByUsername(username string) (*profile.User, error)
 
 	// IsActive checks if the user is active.
-	IsActive(u *User) (bool, error)
+	IsActive(u *profile.User) (bool, error)
 }
 
 type UserErrService interface {
@@ -56,7 +57,7 @@ type service struct {
 }
 
 // GetUserByUsername retrieves user data by username from the database.
-func (s *service) GetByUsername(username string) (*User, error) {
+func (s *service) GetByUsername(username string) (*profile.User, error) {
 
 	// lightweight input validation
 	if len(username) < 5 || len(username) > 255 {
@@ -82,7 +83,7 @@ func (s *service) GetByUsername(username string) (*User, error) {
 				account_locked 
 			FROM users 
 			WHERE user_index = ?`
-	var user User
+	var user profile.User
 	if err := s.db.SelectRecord(qry, &user, index); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, errors.New(ErrUserNotFound)
@@ -168,7 +169,7 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 }
 
 // isActiveUser is a helper method checks if the user is active
-func (s *service) IsActive(u *User) (bool, error) {
+func (s *service) IsActive(u *profile.User) (bool, error) {
 
 	if !u.Enabled {
 		return false, fmt.Errorf("%s: %s", ErrUserDisabled, u.Username)
