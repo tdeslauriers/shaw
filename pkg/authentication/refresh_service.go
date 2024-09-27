@@ -75,7 +75,7 @@ func (r *refresh) GetRefreshToken(refreshToken string) (*types.UserRefresh, erro
 		decryptedScopes   string
 	)
 
-	wg.Add(3)
+	wg.Add(4)
 	go r.decrypt(refresh.ClientId, ErrDecryptClientId, &decryptedClientId, errChan, &wg)
 	go r.decrypt(refresh.RefreshToken, ErrDecryptRefresh, &decryptedRefresh, errChan, &wg)
 	go r.decrypt(refresh.Username, ErrDecryptUsername, &decryptedUsername, errChan, &wg)

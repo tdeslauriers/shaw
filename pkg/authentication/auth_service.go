@@ -96,13 +96,14 @@ func (s *authService) ValidateCredentials(username, password string) error {
 	qry := `
 		SELECT 
 			uuid,
-			user_key,
 			username,
 			user_index,
 			password,
 			firstname,
 			lastname,
 			birth_date,
+			slug,
+			slug_index,
 			created_at,
 			enabled,
 			account_expired,

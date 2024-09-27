@@ -77,11 +77,12 @@ func (s *service) GetByUsername(username string) (*profile.User, error) {
 				firstname, 
 				lastname,
 				birth_date,
+				slug,
 				created_at, 
 				enabled,
 				account_expired,
 				account_locked 
-			FROM users 
+			FROM account 
 			WHERE user_index = ?`
 	var user profile.User
 	if err := s.db.SelectRecord(qry, &user, index); err != nil {
@@ -99,14 +100,16 @@ func (s *service) GetByUsername(username string) (*profile.User, error) {
 		decryptedFirstname string
 		decryptedLastname  string
 		decryptBirthDate   string
+		decryptedSlug      string
 	)
 
 	// decrypt user data
-	wg.Add(4)
+	wg.Add(5)
 	go s.decrypt(user.Username, ErrDecryptUsername, &decryptedUsername, errChan, &wg)
 	go s.decrypt(user.Firstname, ErrDecryptFirstname, &decryptedFirstname, errChan, &wg)
 	go s.decrypt(user.Lastname, ErrDecryptLastname, &decryptedLastname, errChan, &wg)
 	go s.decrypt(user.BirthDate, ErrDecryptBirthDate, &decryptBirthDate, errChan, &wg)
+	go s.decrypt(user.Slug, ErrDecryptSlug, &decryptedSlug, errChan, &wg)
 
 	wg.Wait()
 	close(errChan)
@@ -131,6 +134,7 @@ func (s *service) GetByUsername(username string) (*profile.User, error) {
 	user.Firstname = decryptedFirstname
 	user.Lastname = decryptedLastname
 	user.BirthDate = decryptBirthDate
+	user.Slug = decryptedSlug
 
 	return &user, nil
 }

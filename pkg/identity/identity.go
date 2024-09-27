@@ -105,21 +105,19 @@ func New(config config.Config) (Identity, error) {
 
 	// s2s jwt verifier
 	// format public key for use in jwt verification
-	pubPem, err := base64.StdEncoding.DecodeString(config.Jwt.S2sVerifyingKey)
+	s2sPubPem, err := base64.StdEncoding.DecodeString(config.Jwt.S2sVerifyingKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode s2s jwt-verifying public key: %v", err)
 	}
-	pubBlock, _ := pem.Decode(pubPem)
-	genericPublicKey, err := x509.ParsePKIXPublicKey(pubBlock.Bytes)
+	s2sPubBlock, _ := pem.Decode(s2sPubPem)
+	s2sGenericPublicKey, err := x509.ParsePKIXPublicKey(s2sPubBlock.Bytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse pub Block to generic public key: %v", err)
 	}
-	publicKey, ok := genericPublicKey.(*ecdsa.PublicKey)
+	s2sPublicKey, ok := s2sGenericPublicKey.(*ecdsa.PublicKey)
 	if !ok {
 		return nil, fmt.Errorf("not an ECDSA public key")
 	}
-
-	s2sVerifier := jwt.NewVerifier(config.ServiceName, publicKey)
 
 	// retry config for s2s callers
 	retry := connect.RetryConfiguration{
@@ -140,20 +138,18 @@ func New(config config.Config) (Identity, error) {
 	s2sProvider := provider.NewS2sTokenProvider(s2sCaller, s2sCreds, repository, cryptor)
 
 	// user jwt signer
-	privPem, err := base64.StdEncoding.DecodeString(config.Jwt.UserSigningKey)
+	iamPrivPem, err := base64.StdEncoding.DecodeString(config.Jwt.UserSigningKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode user jwt-signing key: %v", err)
 	}
-	privBlock, _ := pem.Decode(privPem)
-	privateKey, err := x509.ParseECPrivateKey(privBlock.Bytes)
+	iamPrivBlock, _ := pem.Decode(iamPrivPem)
+	iamPrivateKey, err := x509.ParseECPrivateKey(iamPrivBlock.Bytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse priv Block to private key: %v", err)
 	}
 
-	signer := jwt.NewSigner(privateKey)
-
-	// user jwt verifier
-	//TODO: implement user jwt verifier
+	// identity jwt signer
+	iamSigner := jwt.NewSigner(iamPrivateKey)
 
 	// password change service
 	// TODO: implement password change service
@@ -162,8 +158,9 @@ func New(config config.Config) (Identity, error) {
 		config:          config,
 		serverTls:       serverTlsConfig,
 		repository:      repository,
-		s2sVerifier:     s2sVerifier,
-		authService:     authentication.NewService(repository, signer, indexer, cryptor, s2sProvider, s2sCaller),
+		s2sVerifier:     jwt.NewVerifier(config.ServiceName, s2sPublicKey),
+		iamVerifier:     jwt.NewVerifier(config.ServiceName, &iamPrivateKey.PublicKey),
+		authService:     authentication.NewService(repository, iamSigner, indexer, cryptor, s2sProvider, s2sCaller),
 		oathService:     oauth.NewService(repository, indexer, cryptor),
 		registerService: register.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller),
 		userService:     user.NewService(repository, indexer, cryptor),
@@ -183,6 +180,7 @@ type identity struct {
 	serverTls       *tls.Config
 	repository      data.SqlRepository
 	s2sVerifier     jwt.Verifier
+	iamVerifier     jwt.Verifier
 	authService     authentication.Service
 	oathService     oauth.Service
 	registerService register.Service
@@ -207,19 +205,25 @@ func (i *identity) Run() error {
 	registerHandler := register.NewHandler(i.registerService, i.s2sVerifier)
 	loginHandler := login.NewHandler(i.authService, i.oathService, i.s2sVerifier)
 	callbackHandler := callback.NewHandler(i.s2sVerifier, i.authService, i.oathService)
+
 	refreshHandler := refresh.NewHandler(i.authService, i.s2sVerifier, i.userService)
+
+	profileHandler := user.NewHandler(i.userService, i.s2sVerifier, i.iamVerifier)
 
 	// password change handler
 	// TODO: implement password change handler
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", diagnostics.HealthCheckHandler)
+
 	mux.HandleFunc("/register", registerHandler.HandleRegistration)
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
 	mux.HandleFunc("/callback", callbackHandler.HandleCallback)
 
 	mux.HandleFunc("/refresh", refreshHandler.HandleRefresh)
 	mux.HandleFunc("/refresh/destroy", refreshHandler.HandleDestroy)
+
+	mux.HandleFunc("/profile", profileHandler.HandleProfile)
 
 	identityServer := &connect.TlsServer{
 		Addr:      i.config.ServicePort,

@@ -19,7 +19,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var defaultScopes []string = []string{"r:silhouette:profile:*", "e:silhouette:profile:*", "r:junk:*"}
+var defaultScopes []string = []string{"r:shaw:profile:*", "w:shaw:profile:*", "r:silhouette:profile:*", "e:silhouette:profile:*", "r:junk:*"}
 
 type Service interface {
 	// Register registers a new user account and creates appropriate xrefs for default scopes and client(s)
@@ -80,8 +80,8 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		return errors.New("invalid client id")
 	}
 
-	// create blind user index
-	index, err := s.indexer.ObtainBlindIndex(cmd.Username)
+	// create blind user userIndex
+	userIndex, err := s.indexer.ObtainBlindIndex(cmd.Username)
 	if err != nil {
 		s.logger.Error("failed to create username index", "err", err.Error())
 		return errors.New(BuildUserErrMsg)
@@ -110,7 +110,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 			s.logger.Error(fmt.Sprintf("username %s already exists", cmd.Username))
 			ch <- errors.New(UsernameUnavailableErrMsg)
 		}
-	}(index, checkErrChan, &wgCheck)
+	}(userIndex, checkErrChan, &wgCheck)
 
 	// check if client exists
 	wgCheck.Add(1)
@@ -168,12 +168,13 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 	var (
 		wgBuild   sync.WaitGroup
 		id        string
-		userKey   string
 		username  string
 		password  string
 		firstname string
 		lastname  string
 		dob       string
+		slug      string
+		slugIndex string
 
 		buildErrChan = make(chan error, 1)
 	)
@@ -193,27 +194,35 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		*id = i.String()
 	}(&id, buildErrChan, &wgBuild)
 
-	// build universal user key
+	// build user slug and slug index
 	wgBuild.Add(1)
-	go func(key *string, ch chan error, wg *sync.WaitGroup) {
+	go func(slug, index *string, ch chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
-		k, err := uuid.NewRandom()
+		// create user slug value
+		sg, err := uuid.NewRandom()
 		if err != nil {
 			msg := fmt.Sprintf("failed to create user key for username/email %s: %v", cmd.Username, err)
 			s.logger.Error(msg, "err", err.Error())
 			ch <- errors.New(msg)
 		}
 
-		encrypted, err := s.cipher.EncryptServiceData(k.String())
+		sgIndex, err := s.indexer.ObtainBlindIndex(sg.String())
+		if err != nil {
+			msg := fmt.Sprintf("failed to create slug index for username/email %s", cmd.Username)
+			ch <- errors.New(msg)
+		}
+
+		encrypted, err := s.cipher.EncryptServiceData(sg.String())
 		if err != nil {
 			msg := fmt.Sprintf("%s user key for username/email %s: %v", FieldLevelEncryptErrMsg, cmd.Username, err)
 			s.logger.Error(msg, "err", err.Error())
 			ch <- errors.New(msg)
 		}
 
-		*key = encrypted
-	}(&userKey, buildErrChan, &wgBuild)
+		*slug = encrypted
+		*index = sgIndex
+	}(&slug, &slugIndex, buildErrChan, &wgBuild)
 
 	// encrypt username
 	wgBuild.Add(1)
@@ -314,12 +323,13 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 	user := types.UserAccount{
 		Uuid:           id,
 		Username:       username,
-		UserKey:        userKey,
-		UserIndex:      index,
+		UserIndex:      userIndex,
 		Password:       password,
 		Firstname:      firstname,
 		Lastname:       lastname,
 		Birthdate:      dob,
+		Slug:           slug,
+		SlugIndex:      slugIndex,
 		CreatedAt:      createdAt.Format("2006-01-02 15:04:05"),
 		Enabled:        true, // this will change to false when email verification built
 		AccountExpired: false,
@@ -327,7 +337,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 	}
 
 	// insert user into database
-	query := "INSERT INTO account (uuid, user_key, username, user_index, password, firstname, lastname, birth_date, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	query := "INSERT INTO account (uuid, username, user_index, password, firstname, lastname, birth_date, slug, slug_index, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 	if err := s.db.InsertRecord(query, user); err != nil {
 		s.logger.Error(fmt.Sprintf("failed to insert (%s) user record into account table in db", username), "err", err.Error())
 		return errors.New(BuildUserErrMsg)

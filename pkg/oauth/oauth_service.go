@@ -236,7 +236,7 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 		}
 
 		// only need the user uuid
-		qry := `SELECT uuid, user_key, username, user_index, password, firstname, lastname, birth_date, created_at, enabled, account_expired, account_locked FROM account WHERE user_index = ?`
+		qry := `SELECT uuid, username, user_index, password, firstname, lastname, birth_date, slug, slug_index, created_at, enabled, account_expired, account_locked FROM account WHERE user_index = ?`
 		var user types.UserAccount
 		if err := s.db.SelectRecord(qry, &user, userIndex); err != nil {
 			errs <- fmt.Errorf("failed to retrieve user uuid for %s: %v", username, err)

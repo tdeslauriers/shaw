@@ -7,13 +7,15 @@ CREATE TABLE account (
     firstname VARCHAR(128) NOT NULL,
     lastname VARCHAR(128) NOT NULL,
     birth_date VARCHAR(128),
+    slug VARCHAR(128) NOT NULL,
+    slug_index VARCHAR(128) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     enabled BOOLEAN NOT NULL,
     account_expired BOOLEAN NOT NULL,
     account_locked BOOLEAN NOT NULL
 );
 CREATE UNIQUE INDEX idx_user_blind_index ON account (user_index);
-CREATE UNIQUE iNDEX idx_user_key ON account (user_key);
+CREATE UNIQUE iNDEX idx_slug_index ON account (slug_index);
 
 -- scopes table is in Ran Database, call s2s service for data
 -- account scope xref table

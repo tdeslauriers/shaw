@@ -12,4 +12,5 @@ const (
 	ErrDecryptFirstname = "failed to decrypt firstname"
 	ErrDecryptLastname  = "failed to decrypt lastname"
 	ErrDecryptBirthDate = "failed to decrypt birth date"
+	ErrDecryptSlug      = "failed to decrypt slug"
 )
