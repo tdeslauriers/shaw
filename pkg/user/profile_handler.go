@@ -53,6 +53,7 @@ func (h *handler) HandleProfile(w http.ResponseWriter, r *http.Request) {
 	case "GET":
 		h.handleGet(w, r)
 	case "PUT":
+	case "POST":
 		h.handleUpdate(w, r)
 	default:
 		h.logger.Error("only GET, PUT http methods allowed")
@@ -193,7 +194,7 @@ func (h *handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// update user data
-	if err := h.service.Update(&cmd); err != nil {
+	if err := h.service.Update(&updated); err != nil {
 		h.logger.Error(fmt.Sprintf("failed to update user profile: %s", cmd.Username), "err", err.Error())
 		h.service.HandleServiceErr(err, w)
 		return

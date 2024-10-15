@@ -107,12 +107,16 @@ func (s *service) GetByUsername(username string) (*profile.User, error) {
 	)
 
 	// decrypt user data
-	wg.Add(5)
+	wg.Add(4)
 	go s.decrypt(user.Username, ErrDecryptUsername, &decryptedUsername, errChan, &wg)
 	go s.decrypt(user.Firstname, ErrDecryptFirstname, &decryptedFirstname, errChan, &wg)
 	go s.decrypt(user.Lastname, ErrDecryptLastname, &decryptedLastname, errChan, &wg)
-	go s.decrypt(user.BirthDate, ErrDecryptBirthDate, &decryptBirthDate, errChan, &wg)
 	go s.decrypt(user.Slug, ErrDecryptSlug, &decryptedSlug, errChan, &wg)
+
+	if user.BirthDate != "" {
+		wg.Add(1)
+		go s.decrypt(user.BirthDate, ErrDecryptBirthDate, &decryptBirthDate, errChan, &wg)
+	}
 
 	wg.Wait()
 	close(errChan)
@@ -221,9 +225,9 @@ func (s *service) Update(user *profile.User) error {
 	qry := `UPDATE account
 			SET firstname = ?,
 				lastname = ?,
-				birth_date = ?
-				enabled = ?
-				account_locked = ?
+				birth_date = ?,
+				enabled = ?,
+				account_locked = ?,
 				account_expired = ?
 			WHERE user_index = ?`
 	if err := s.db.UpdateRecord(qry, encFirstname, encLastname, encBirthDate, user.Enabled, user.AccountLocked, user.AccountExpired, index); err != nil {
