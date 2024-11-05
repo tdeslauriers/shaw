@@ -513,8 +513,10 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 	wg.Add(1)
 	go s.decrypt(user.Lastname, ErrDecryptLastname, &decryptedLastname, errChan, &wg)
 
-	wg.Add(1)
-	go s.decrypt(user.BirthDate, ErrDecryptBirthdate, &decryptedBirthdate, errChan, &wg)
+	if user.BirthDate != "" {
+		wg.Add(1)
+		go s.decrypt(user.BirthDate, ErrDecryptBirthdate, &decryptedBirthdate, errChan, &wg)
+	}
 
 	wg.Add(1)
 	go s.decrypt(user.Authcode, ErrDecryptAuthcode, &decryptedAuthcode, errChan, &wg)

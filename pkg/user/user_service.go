@@ -13,6 +13,8 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/profile"
+	"github.com/tdeslauriers/carapace/pkg/validate"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Service interface {
@@ -31,6 +33,10 @@ type UserService interface {
 
 	// IsActive checks if the user is active.
 	IsActive(u *profile.User) (bool, error)
+
+	// ResetPassword updates the users password in the database.
+	// This includes hashing the password before storing it.
+	ResetPassword(username, password string) error
 }
 
 type UserErrService interface {
@@ -266,6 +272,78 @@ func (s *service) IsActive(u *profile.User) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// ResetPassword is the concrete implementation of the method which updates the users password in the database.
+func (s *service) ResetPassword(username, password string) error {
+
+	// lightweight input validation of username
+	if len(username) < validate.EmailMin || len(username) > validate.EmailMax {
+		return fmt.Errorf("%s - username must be between %d and %d characters", ErrInvalidUserData, validate.EmailMin, validate.EmailMax)
+	}
+
+	// validate password: rundundant, but necessary for data integrity and good practice
+	if err := validate.IsValidPassword(password); err != nil {
+		return fmt.Errorf("%s - password must not well formed: %v", ErrInvalidUserData, err)
+	}
+
+	var (
+		wg      sync.WaitGroup
+		errChan = make(chan error, 2)
+
+		index  string
+		hashed string
+	)
+
+	wg.Add(1)
+	go func(username string, index *string, ch chan error, wg *sync.WaitGroup) {
+
+		idx, err := s.index.ObtainBlindIndex(username)
+		if err != nil {
+			ch <- fmt.Errorf("%s for %s: %v", ErrGenerateUserIndex, username, err)
+			return
+		}
+
+		*index = idx
+	}(username, &index, errChan, &wg)
+
+	wg.Add(1)
+	go func(password string, hashed *string, ch chan error, wg *sync.WaitGroup) {
+
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), 13)
+		if err != nil {
+			ch <- fmt.Errorf("failed to hash password: %v", err)
+			return
+		}
+
+		*hashed = string(hash)
+	}(password, &hashed, errChan, &wg)
+
+	wg.Wait()
+	close(errChan)
+
+	// check for errors and consolidate
+	errCount := len(errChan)
+	if errCount > 0 {
+		var builder strings.Builder
+		counter := 0
+		for err := range errChan {
+			builder.WriteString(fmt.Sprintf("%v", err))
+			if counter < errCount-1 {
+				builder.WriteString("; ")
+			}
+			counter++
+		}
+		return fmt.Errorf("failed to reset password for %s: %s", username, builder.String())
+	}
+
+	// update password
+	qry := `UPDATE account SET password = ? WHERE user_index = ?`
+	if err := s.db.UpdateRecord(qry, hashed, index); err != nil {
+		return fmt.Errorf("failed to update database user password for %s: %v", username, err)
+	}
+
+	return nil
 }
 
 func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {

@@ -208,10 +208,7 @@ func (i *identity) Run() error {
 
 	refreshHandler := refresh.NewHandler(i.authService, i.s2sVerifier, i.userService)
 
-	profileHandler := user.NewHandler(i.userService, i.s2sVerifier, i.iamVerifier)
-
-	// password change handler
-	// TODO: implement password change handler
+	profileHandler := user.NewHandler(i.userService, i.authService, i.s2sVerifier, i.iamVerifier)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", diagnostics.HealthCheckHandler)
@@ -224,6 +221,7 @@ func (i *identity) Run() error {
 	mux.HandleFunc("/refresh/destroy", refreshHandler.HandleDestroy)
 
 	mux.HandleFunc("/profile", profileHandler.HandleProfile)
+	mux.HandleFunc("/reset", profileHandler.HandleReset)
 
 	identityServer := &connect.TlsServer{
 		Addr:      i.config.ServicePort,

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
+	"shaw/pkg/authentication"
 	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
@@ -19,15 +20,35 @@ var (
 	updateAllowed = []string{"w:shaw:profile:*"}
 )
 
-// Handler interface for user profile services
 type Handler interface {
+	ProfileHandler
+	ResetHandler
+}
+
+// NewHandler creates a new Handler interface by returning a pointer to a new concrete implementation of the Handler interface
+func NewHandler(s Service, a authentication.Service, s2s jwt.Verifier, iam jwt.Verifier) Handler {
+	return &handler{
+		ProfileHandler: NewProfileHandler(s, s2s, iam),
+		ResetHandler:   NewResetHandler(s, a, s2s, iam),
+	}
+}
+
+var _ Handler = (*handler)(nil)
+
+type handler struct {
+	ProfileHandler
+	ResetHandler
+}
+
+// ProfileHandler interface for user profile services
+type ProfileHandler interface {
 	// HandleProfile handles the profile request from users
 	HandleProfile(w http.ResponseWriter, r *http.Request)
 }
 
 // NewHandler creates a new user profile handler
-func NewHandler(s Service, s2s jwt.Verifier, iam jwt.Verifier) Handler {
-	return &handler{
+func NewProfileHandler(s Service, s2s jwt.Verifier, iam jwt.Verifier) ProfileHandler {
+	return &profileHandler{
 		service:     s,
 		s2sVerifier: s2s,
 		iamVerifier: iam,
@@ -36,9 +57,9 @@ func NewHandler(s Service, s2s jwt.Verifier, iam jwt.Verifier) Handler {
 	}
 }
 
-var _ Handler = (*handler)(nil)
+var _ ProfileHandler = (*profileHandler)(nil)
 
-type handler struct {
+type profileHandler struct {
 	service     Service
 	s2sVerifier jwt.Verifier
 	iamVerifier jwt.Verifier
@@ -47,7 +68,7 @@ type handler struct {
 }
 
 // HandleProfile handles the profile request from users
-func (h *handler) HandleProfile(w http.ResponseWriter, r *http.Request) {
+func (h *profileHandler) HandleProfile(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case "GET":
@@ -66,7 +87,7 @@ func (h *handler) HandleProfile(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *handler) handleGet(w http.ResponseWriter, r *http.Request) {
+func (h *profileHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
@@ -120,7 +141,7 @@ func (h *handler) handleGet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
+func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")

@@ -13,4 +13,5 @@ const (
 	ComponentRefresh   = "refresh"
 	ComponentScopes    = "scopes"
 	ComponentUser      = "user"
+	ComponentReset     = "reset password"
 )
