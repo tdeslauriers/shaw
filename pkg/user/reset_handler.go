@@ -2,6 +2,7 @@ package user
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
@@ -107,24 +108,14 @@ func (h *resetHandler) HandleReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// validate current password
-	// note: this check will also generate an error if the users is disabled, locked, or expired.
-	if err := h.auth.ValidateCredentials(jot.Claims.Subject, cmd.CurrentPassword); err != nil {
-		h.logger.Error("failed to validate current password", "err", err.Error())
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusUnauthorized,
-			Message:    "failed to validate current password",
-		}
-		e.SendJsonErr(w)
-		return
-	}
-
 	// update password
-	if err := h.service.ResetPassword(jot.Claims.Subject, cmd.NewPassword); err != nil {
-		h.logger.Error("failed to reset password", "err", err.Error())
+	// this will check if the user exists, is valid, and if the current password is correct
+	if err := h.service.ResetPassword(jot.Claims.Subject, cmd); err != nil {
 		h.service.HandleServiceErr(err, w)
 		return
 	}
+
+	h.logger.Info(fmt.Sprintf("user %s's password was successfully reset.", jot.Claims.Subject))
 
 	// return 204
 	w.WriteHeader(http.StatusNoContent)

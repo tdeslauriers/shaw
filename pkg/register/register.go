@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"shaw/internal/util"
+	"shaw/pkg/user"
 	"strings"
 	"sync"
 	"time"
@@ -176,7 +177,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		slug      string
 		slugIndex string
 
-		buildErrChan = make(chan error, 1)
+		buildErrChan = make(chan error, 10)
 	)
 
 	// build user record / encrypt user data for persistance
@@ -202,7 +203,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		// create user slug value
 		sg, err := uuid.NewRandom()
 		if err != nil {
-			msg := fmt.Sprintf("failed to create user key for username/email %s: %v", cmd.Username, err)
+			msg := fmt.Sprintf("failed to create user slug for username/email %s: %v", cmd.Username, err)
 			s.logger.Error(msg, "err", err.Error())
 			ch <- errors.New(msg)
 		}
@@ -215,7 +216,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 
 		encrypted, err := s.cipher.EncryptServiceData(sg.String())
 		if err != nil {
-			msg := fmt.Sprintf("%s user key for username/email %s: %v", FieldLevelEncryptErrMsg, cmd.Username, err)
+			msg := fmt.Sprintf("%s user slug for username/email %s: %v", FieldLevelEncryptErrMsg, cmd.Username, err)
 			s.logger.Error(msg, "err", err.Error())
 			ch <- errors.New(msg)
 		}
@@ -320,15 +321,15 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 
 	createdAt := time.Now().UTC()
 
-	user := types.UserAccount{
+	account := types.UserAccount{
 		Uuid:           id,
-		Username:       username,
+		Username:       username, // encrypted username
 		UserIndex:      userIndex,
-		Password:       password,
-		Firstname:      firstname,
-		Lastname:       lastname,
-		Birthdate:      dob,
-		Slug:           slug,
+		Password:       password,  // encrypted password
+		Firstname:      firstname, // encrypted firstname
+		Lastname:       lastname,  // encrypted lastname
+		Birthdate:      dob,       // encrypted dob
+		Slug:           slug,      // encrypted slug
 		SlugIndex:      slugIndex,
 		CreatedAt:      createdAt.Format("2006-01-02 15:04:05"),
 		Enabled:        true, // this will change to false when email verification built
@@ -336,15 +337,69 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		AccountLocked:  false,
 	}
 
-	// insert user into database
-	query := "INSERT INTO account (uuid, username, user_index, password, firstname, lastname, birth_date, slug, slug_index, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-	if err := s.db.InsertRecord(query, user); err != nil {
-		s.logger.Error(fmt.Sprintf("failed to insert (%s) user record into account table in db", username), "err", err.Error())
-		return errors.New(BuildUserErrMsg)
-	}
-	s.logger.Info(fmt.Sprintf("user %s successfully saved in account table", cmd.Username))
+	var (
+		wgPersist      sync.WaitGroup
+		persistErrChan = make(chan error, 2)
+	)
+
+	wgPersist.Add(1)
+	go func(a types.UserAccount, ch chan error, wg *sync.WaitGroup) {
+
+		// insert user into database
+		query := "INSERT INTO account (uuid, username, user_index, password, firstname, lastname, birth_date, slug, slug_index, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+		if err := s.db.InsertRecord(query, a); err != nil {
+			s.logger.Error(fmt.Sprintf("failed to insert (%s) user record into account table in db", a.Username), "err", err.Error())
+			ch <- errors.New(BuildUserErrMsg)
+			return
+		}
+		s.logger.Info(fmt.Sprintf("user %s successfully saved in account table", a.Username))
+	}(account, persistErrChan, &wgPersist)
+
+	// persist password to password history table
+	wgPersist.Add(1)
+	go func(a types.UserAccount, ch chan error, wg *sync.WaitGroup) {
+		defer wg.Done()
+
+		pwId, err := uuid.NewRandom()
+		if err != nil {
+			ch <- fmt.Errorf("failed to create uuid for password history record for registering user %s", a.Username)
+			return
+		}
+
+		history := user.PasswordHistory{
+			Id:        pwId.String(),
+			Password:  a.Password,
+			Updated:   a.CreatedAt,
+			AccountId: a.Uuid,
+		}
+
+		query := "INSERT INTO password_history (uuid, password, updated, account_uuid) VALUES (?, ?, ?, ?)"
+		if err := s.db.InsertRecord(query, history); err != nil {
+			ch <- fmt.Errorf("failed to insert password history record for registering user %s", a.Username)
+			return
+		}
+		s.logger.Info(fmt.Sprintf("password history record successfully saved for registering user %s", a.Username))
+	}(account, persistErrChan, &wgPersist)
 
 	// wait for user to be saved, otherwise no need to continue.
+	wgPersist.Wait()
+	close(persistErrChan)
+
+	// consolidate and return err if user account failed to save
+	errCount = len(persistErrChan)
+	if errCount > 0 {
+		var builder strings.Builder
+		count := 0
+		for e := range persistErrChan {
+			builder.WriteString(e.Error())
+			if count < errCount-1 {
+				builder.WriteString("; ")
+			}
+			count++
+		}
+		return errors.New(builder.String())
+	}
+
 	// get s2s service endpoint token to retreive scopes
 	s2stoken, err := s.s2sToken.GetServiceToken(util.ServiceNameS2s)
 	if err != nil {
@@ -407,7 +462,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 			CreatedAt: created,
 		}
 
-		query = "INSERT INTO account_client (id, account_uuid, client_uuid, created_at) VALUES (?, ?, ?, ?)"
+		query := "INSERT INTO account_client (id, account_uuid, client_uuid, created_at) VALUES (?, ?, ?, ?)"
 		if err := s.db.InsertRecord(query, xref); err != nil {
 			ch <- fmt.Errorf("failed to associate user %s with client %s: %v", cmd.Username, c.ClientName, err)
 			return
