@@ -291,7 +291,7 @@ func (s *service) ResetPassword(username string, cmd profile.ResetCmd) error {
 
 	// validate password == confirmation: redundant, but necessary for data integrity and good practice
 	if cmd.NewPassword != cmd.ConfirmPassword {
-		return fmt.Errorf("%s - user %s's new password and confirmation password do not match", ErrInvalidUserData, username)
+		return fmt.Errorf("user %s's %s", ErrNewConfirmPwMismatch, username)
 	}
 
 	// generate user index
@@ -302,33 +302,38 @@ func (s *service) ResetPassword(username string, cmd profile.ResetCmd) error {
 
 	var history []UserPasswordHistory
 	qry := `SELECT
-				a.uuid AS user_uuid,
-				a.username,
-				a.passowrd AS current_password,
-				a.enabled,
-				a.account_expired,
-				a.account_locked,
-				ph.uuid AS password_history_uuid,
-				ph.password AS history_password,
-				ph.updated
-			FROM account a
-				LEFT OUTER JOIN password_history ph ON a.uuid = ph.account_uuid
-			WHERE a.user_index = ?`
+	a.uuid AS user_uuid,
+	a.username,
+	a.password AS current_password,
+	a.enabled,
+	a.account_expired,
+	a.account_locked,
+	ph.uuid AS password_history_uuid,
+	ph.password AS history_password,
+	ph.updated
+	FROM account a
+	LEFT OUTER JOIN password_history ph ON a.uuid = ph.account_uuid
+	WHERE a.user_index = ?`
 	if err := s.db.SelectRecords(qry, &history, index); err != nil {
 		if err == sql.ErrNoRows {
+			// this should never happen: pulled from token
+			s.logger.Error(fmt.Sprintf("user %s not found", username))
 			return fmt.Errorf("%s: %s", ErrUserNotFound, username)
 		}
+		s.logger.Error(fmt.Sprintf("password reset failed: failed to retrieve user %s data", username), "err", err.Error())
 		return fmt.Errorf("failed to retrieve user %s data: %v", username, err)
 	}
 
 	// check that records exist to evaluate.
 	// this should not be possible.
 	if len(history) < 1 {
+		s.logger.Error(fmt.Sprintf("password reset failed: no password history records found for user: %s", username))
 		return fmt.Errorf("no password history records found for user: %s", username)
 	}
 
 	// check if user is enabled, not locked, and not expired before hashing operations
 	if !history[0].Enabled {
+
 		return fmt.Errorf("%s: %s", ErrUserDisabled, username)
 	}
 
@@ -344,39 +349,39 @@ func (s *service) ResetPassword(username string, cmd profile.ResetCmd) error {
 	current := []byte(cmd.CurrentPassword)
 	currentHash := []byte(history[0].CurrentPassword)
 	if err := bcrypt.CompareHashAndPassword(currentHash, current); err != nil {
-		s.logger.Error(fmt.Sprintf("failed to validate user %s's current password", username), "err", err.Error())
-		return fmt.Errorf("failed to validate current password for user %s", username)
+		return fmt.Errorf("%s for user %s", ErrInvalidPassword, username)
 	}
 
 	// hash new password
 	newHash, err := bcrypt.GenerateFromPassword([]byte(cmd.NewPassword), 13)
 	if err != nil {
-		s.logger.Error(fmt.Sprintf("failed to hash new password for user %s", username), "err", err.Error())
+		s.logger.Error(fmt.Sprintf("password reset failed: failed to hash new password for user %s", username), "err", err.Error())
 		return fmt.Errorf("failed to hash new password")
 	}
 
 	// validate new password is not the same as any previous password
 	for _, h := range history {
-		if string(newHash) == h.HistoryPassword {
-			s.logger.Error(fmt.Sprintf("user %s's new password has been used previously: %s", username, h.Updated.Format("2006-01-02 15:04:05")))
-			return fmt.Errorf("this password has been used previously: %s", h.Updated.Format("2006-01-02 15:04:05"))
+		// If no error, then a match => password has already been used.
+		if err := bcrypt.CompareHashAndPassword([]byte(h.HistoryPassword), []byte(cmd.NewPassword)); err == nil {
+			s.logger.Error(fmt.Sprintf("password reset failed: user %s's new %s: %s", username, ErrPasswordUsedPreviously, h.Updated.Format("2006-01-02 15:04:05")))
+			return fmt.Errorf("%s: %s", ErrPasswordUsedPreviously, h.Updated.Format("2006-01-02 15:04:05"))
 		}
 	}
 
 	// update password in account table
-
 	qry = `UPDATE account SET password = ? WHERE user_index = ?`
 	if err := s.db.UpdateRecord(qry, string(newHash), index); err != nil {
-		s.logger.Error(fmt.Sprintf("failed to update user %s's password", username), "err", err.Error())
+		s.logger.Error(fmt.Sprintf("password reset failed: failed to update user %s's password", username), "err", err.Error())
 		return fmt.Errorf("failed to update user %s's password", username)
 	}
-	s.logger.Info(fmt.Sprintf("successfully updated user %s's password", username))
+	s.logger.Info(fmt.Sprintf("successfully updated user %s's password in account record", username))
 
 	// insert new password history record into password_history table
-	// cannot user concurrency because need to be sure account table password is updated before history record is inserted
+	// cannot use concurrency because need to be sure account table password is
+	// updated successfully before history record is inserted
 	id, err := uuid.NewRandom()
 	if err != nil {
-		s.logger.Error(fmt.Sprintf("failed to generate uuid for user %s's new password history record", username), "err", err.Error())
+		s.logger.Error(fmt.Sprintf("password reset failed: failed to generate uuid for user %s's new password history record", username), "err", err.Error())
 		return fmt.Errorf("failed to generate uuid for user %s's new password history record", username)
 	}
 
@@ -389,7 +394,7 @@ func (s *service) ResetPassword(username string, cmd profile.ResetCmd) error {
 
 	qry = `INSERT INTO password_history (uuid, password, updated, account_uuid) VALUES (?, ?, ?, ?)`
 	if err := s.db.InsertRecord(qry, record); err != nil {
-		s.logger.Error(fmt.Sprintf("failed to insert new password history record for user %s", username), "err", err.Error())
+		s.logger.Error(fmt.Sprintf("password reset failed: failed to insert new password history record for user %s", username), "err", err.Error())
 		return fmt.Errorf("failed to insert new password history record for user %s", username)
 	}
 	s.logger.Info(fmt.Sprintf("successfully updated user %s's password history", username))
@@ -404,7 +409,7 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 	case strings.Contains(err.Error(), ErrUserDisabled):
 	case strings.Contains(err.Error(), ErrUserLocked):
 	case strings.Contains(err.Error(), ErrUserExpired):
-	case strings.Contains(err.Error(), "failed to validate current password"):
+	case strings.Contains(err.Error(), ErrInvalidPassword):
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    err.Error(),
@@ -412,6 +417,8 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 		e.SendJsonErr(w)
 		return
 	case strings.Contains(err.Error(), ErrInvalidUserData):
+	case strings.Contains(err.Error(), ErrPasswordUsedPreviously):
+	case strings.Contains(err.Error(), ErrNewConfirmPwMismatch):
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnprocessableEntity,
 			Message:    err.Error(),

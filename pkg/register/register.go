@@ -344,7 +344,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 
 	wgPersist.Add(1)
 	go func(a types.UserAccount, ch chan error, wg *sync.WaitGroup) {
-
+		defer wg.Done()
 		// insert user into database
 		query := "INSERT INTO account (uuid, username, user_index, password, firstname, lastname, birth_date, slug, slug_index, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 		if err := s.db.InsertRecord(query, a); err != nil {
@@ -352,7 +352,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 			ch <- errors.New(BuildUserErrMsg)
 			return
 		}
-		s.logger.Info(fmt.Sprintf("user %s successfully saved in account table", a.Username))
+		s.logger.Info(fmt.Sprintf("user %s successfully saved in account table", cmd.Username))
 	}(account, persistErrChan, &wgPersist)
 
 	// persist password to password history table
@@ -362,7 +362,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 
 		pwId, err := uuid.NewRandom()
 		if err != nil {
-			ch <- fmt.Errorf("failed to create uuid for password history record for registering user %s", a.Username)
+			ch <- fmt.Errorf("failed to create uuid for password history record for registering user %s", cmd.Username)
 			return
 		}
 

@@ -4,13 +4,16 @@ import "github.com/tdeslauriers/carapace/pkg/data"
 
 const (
 	// 401
-	ErrUserNotFound = "user not found"
-	ErrUserDisabled = "user account is disabled"
-	ErrUserExpired  = "user account is expired"
-	ErrUserLocked   = "user account is locked"
+	ErrUserNotFound    = "user not found"
+	ErrUserDisabled    = "user account is disabled"
+	ErrUserExpired     = "user account is expired"
+	ErrUserLocked      = "user account is locked"
+	ErrInvalidPassword = "failed to validate current password"
 
 	// 422
-	ErrInvalidUserData = "invalid or not well formed user data"
+	ErrInvalidUserData        = "invalid or not well formed user data"
+	ErrPasswordUsedPreviously = "password has been used previously"
+	ErrNewConfirmPwMismatch   = "new password and confirmation password do not match"
 
 	// 500
 	ErrDecryptUsername  = "failed to decrypt username"
@@ -47,7 +50,7 @@ type UserPasswordHistory struct {
 	AccountLocked   bool   `db:"account_locked" json:"account_locked,omitempty"`
 
 	// password_history table
-	PasswordHisotryId string `json:"password_history_id" db:"password_history_uuid"`
-	HistoryPassword   string `json:"history_password" db:"history_password"`
+	PasswordHisotryId string          `json:"password_history_id" db:"password_history_uuid"`
+	HistoryPassword   string          `json:"history_password" db:"history_password"`
 	Updated           data.CustomTime `json:"updated" db:"updated"`
 }

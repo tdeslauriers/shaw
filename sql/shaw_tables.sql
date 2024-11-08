@@ -48,11 +48,11 @@ CREATE INDEX idx_refresh_username ON refresh(username_index);
 CREATE TABLE password_history (
     uuid CHAR(36) NOT NULL PRIMARY KEY,
     password VARCHAR(255) NOT NULL,
-    updated DATE NOT NULL,
+    updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     account_uuid CHAR(36) NOT NULL,
     CONSTRAINT fk_pw_history_account_uuid FOREIGN KEY (account_uuid) REFERENCES account (uuid)
 );
-CREATE UNIQUE INDEX idx_pw_history_account_uuid ON password_history (account_uuid);
+CREATE INDEX idx_pw_history_account_uuid ON password_history (account_uuid);
 
 -- auth code table
 CREATE TABLE authcode (
