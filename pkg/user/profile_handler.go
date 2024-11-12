@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
-	"shaw/pkg/authentication"
 	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
@@ -26,10 +25,10 @@ type Handler interface {
 }
 
 // NewHandler creates a new Handler interface by returning a pointer to a new concrete implementation of the Handler interface
-func NewHandler(s Service, a authentication.Service, s2s jwt.Verifier, iam jwt.Verifier) Handler {
+func NewHandler(s Service, s2s jwt.Verifier, iam jwt.Verifier) Handler {
 	return &handler{
 		ProfileHandler: NewProfileHandler(s, s2s, iam),
-		ResetHandler:   NewResetHandler(s, a, s2s, iam),
+		ResetHandler:   NewResetHandler(s, s2s, iam),
 	}
 }
 

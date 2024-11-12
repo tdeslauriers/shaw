@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
-	"shaw/pkg/authentication"
 	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
@@ -20,10 +19,10 @@ type ResetHandler interface {
 }
 
 // NewResetHandler creates a pointer to a new concrete implementation of the ResetHandler interface
-func NewResetHandler(s Service, a authentication.Service, s2s jwt.Verifier, iam jwt.Verifier) ResetHandler {
+func NewResetHandler(s Service, s2s jwt.Verifier, iam jwt.Verifier) ResetHandler {
 	return &resetHandler{
-		service:     s,
-		auth:        a,
+		service: s,
+
 		s2sVerifier: s2s,
 		iamVerifier: iam,
 
@@ -36,8 +35,8 @@ func NewResetHandler(s Service, a authentication.Service, s2s jwt.Verifier, iam 
 var _ ResetHandler = (*resetHandler)(nil)
 
 type resetHandler struct {
-	service     Service
-	auth        authentication.Service
+	service Service
+
 	s2sVerifier jwt.Verifier
 	iamVerifier jwt.Verifier
 

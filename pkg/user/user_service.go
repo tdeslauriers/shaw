@@ -194,7 +194,7 @@ func (s *service) Update(user *profile.User) error {
 
 		idx, err := s.index.ObtainBlindIndex(username)
 		if err != nil {
-			ch <- fmt.Errorf("%s for %s: %v", ErrGenerateUserIndex, username, err)
+			ch <- fmt.Errorf("%s for %s: %v", ErrGenUserIndex, username, err)
 			return
 		}
 
@@ -281,23 +281,28 @@ func (s *service) ResetPassword(username string, cmd profile.ResetCmd) error {
 
 	// lightweight input validation of username
 	if len(username) < validate.EmailMin || len(username) > validate.EmailMax {
-		return fmt.Errorf("%s - username must be between %d and %d characters", ErrInvalidUserData, validate.EmailMin, validate.EmailMax)
+		return fmt.Errorf("%s: username must be between %d and %d characters", ErrInvalidUserData, validate.EmailMin, validate.EmailMax)
 	}
 
-	// validate password: rundundant, but necessary for data integrity and good practice
+	// validate current password: lightweight input validation > proper validation below
+	if len(cmd.CurrentPassword) < validate.PasswordMin || len(cmd.CurrentPassword) > validate.PasswordMax {
+		return fmt.Errorf("%s: current password must be between %d and %d characters", ErrInvalidUserData, validate.PasswordMin, validate.PasswordMax)
+	}
+
+	// validate new password is well formed and complies with complexity requirements
 	if err := validate.IsValidPassword(cmd.NewPassword); err != nil {
-		return fmt.Errorf("%s - user %s's new password must not well formed: %v", ErrInvalidUserData, username, err)
+		return fmt.Errorf("new password fails complexity requirements: %v", err)
 	}
 
 	// validate password == confirmation: redundant, but necessary for data integrity and good practice
 	if cmd.NewPassword != cmd.ConfirmPassword {
-		return fmt.Errorf("user %s's %s", ErrNewConfirmPwMismatch, username)
+		return fmt.Errorf("%s", ErrNewConfirmPwMismatch)
 	}
 
 	// generate user index
 	index, err := s.index.ObtainBlindIndex(username)
 	if err != nil {
-		return fmt.Errorf("%s for %s: %v", ErrGenerateUserIndex, username, err)
+		return fmt.Errorf("%s for %s: %v", ErrGenUserIndex, username, err)
 	}
 
 	var history []UserPasswordHistory
@@ -377,27 +382,29 @@ func (s *service) ResetPassword(username string, cmd profile.ResetCmd) error {
 	s.logger.Info(fmt.Sprintf("successfully updated user %s's password in account record", username))
 
 	// insert new password history record into password_history table
-	// cannot use concurrency because need to be sure account table password is
-	// updated successfully before history record is inserted
-	id, err := uuid.NewRandom()
-	if err != nil {
-		s.logger.Error(fmt.Sprintf("password reset failed: failed to generate uuid for user %s's new password history record", username), "err", err.Error())
-		return fmt.Errorf("failed to generate uuid for user %s's new password history record", username)
-	}
+	// dont wait for success, return immediately
+	go func() {
 
-	record := PasswordHistory{
-		Id:        id.String(),
-		Password:  string(newHash),
-		Updated:   time.Now().UTC().Format("2006-01-02 15:04:05"),
-		AccountId: history[0].AccountId,
-	}
+		id, err := uuid.NewRandom()
+		if err != nil {
+			s.logger.Error(fmt.Sprintf("password reset failed: failed to generate uuid for user %s's new password history record", username), "err", err.Error())
+			return
+		}
 
-	qry = `INSERT INTO password_history (uuid, password, updated, account_uuid) VALUES (?, ?, ?, ?)`
-	if err := s.db.InsertRecord(qry, record); err != nil {
-		s.logger.Error(fmt.Sprintf("password reset failed: failed to insert new password history record for user %s", username), "err", err.Error())
-		return fmt.Errorf("failed to insert new password history record for user %s", username)
-	}
-	s.logger.Info(fmt.Sprintf("successfully updated user %s's password history", username))
+		record := PasswordHistory{
+			Id:        id.String(),
+			Password:  string(newHash),
+			Updated:   time.Now().UTC().Format("2006-01-02 15:04:05"),
+			AccountId: history[0].AccountId,
+		}
+
+		qry = `INSERT INTO password_history (uuid, password, updated, account_uuid) VALUES (?, ?, ?, ?)`
+		if err := s.db.InsertRecord(qry, record); err != nil {
+			s.logger.Error(fmt.Sprintf("password reset failed: failed to insert new password history record for user %s", username), "err", err.Error())
+			return
+		}
+		s.logger.Info(fmt.Sprintf("successfully updated user %s's password history", username))
+	}()
 
 	return nil
 }

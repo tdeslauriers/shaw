@@ -26,8 +26,8 @@ const (
 	ErrEncryptLastname  = "failed to encrypt lastname"
 	ErrEncryptBirthDate = "failed to encrypt birth date"
 
-	ErrGenerateUserIndex = "failed to generate user index"
-	ErrGenerateSlugIndex = "failed to generate slug index"
+	ErrGenUserIndex      = "failed to generate user index"
+	ErrGenSlugIndex = "failed to generate slug index"
 )
 
 // PasswordHistory is a model struct that represents a password history record in the password_history table.

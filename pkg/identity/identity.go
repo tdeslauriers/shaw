@@ -208,7 +208,7 @@ func (i *identity) Run() error {
 
 	refreshHandler := refresh.NewHandler(i.authService, i.s2sVerifier, i.userService)
 
-	profileHandler := user.NewHandler(i.userService, i.authService, i.s2sVerifier, i.iamVerifier)
+	profileHandler := user.NewHandler(i.userService, i.s2sVerifier, i.iamVerifier)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", diagnostics.HealthCheckHandler)
