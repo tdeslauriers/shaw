@@ -9,7 +9,7 @@ CREATE TABLE account (
     birth_date VARCHAR(128),
     slug VARCHAR(128) NOT NULL,
     slug_index VARCHAR(128) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT UTC_TIMESTAMP,
     enabled BOOLEAN NOT NULL,
     account_expired BOOLEAN NOT NULL,
     account_locked BOOLEAN NOT NULL
@@ -23,7 +23,7 @@ CREATE TABLE account_scope (
     id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     account_uuid CHAR(36) NOT NULL,
     scope_uuid CHAR(36) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT UTC_TIMESTAMP,
     CONSTRAINT fk_account_scope_xref_id FOREIGN KEY (account_uuid) REFERENCES account (uuid)
 );
 CREATE INDEX idx_account_scope_xref ON account_scope(account_uuid);
@@ -38,7 +38,7 @@ CREATE TABLE refresh (
     username VARCHAR(128) NOT NULL,
     username_index VARCHAR(128) NOT NULL,
     scopes VARCHAR(1024) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT UTC_TIMESTAMP,
     revoked BOOLEAN NOT NULL
 );
 CREATE UNIQUE INDEX idx_refresh_index ON refresh(refresh_index);
@@ -48,7 +48,7 @@ CREATE INDEX idx_refresh_username ON refresh(username_index);
 CREATE TABLE password_history (
     uuid CHAR(36) NOT NULL PRIMARY KEY,
     password VARCHAR(255) NOT NULL,
-    updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated TIMESTAMP NOT NULL DEFAULT UTC_TIMESTAMP,
     account_uuid CHAR(36) NOT NULL,
     CONSTRAINT fk_pw_history_account_uuid FOREIGN KEY (account_uuid) REFERENCES account (uuid)
 );
@@ -63,7 +63,7 @@ CREATE TABLE authcode (
     client_uuid VARCHAR(128) NOT NULL,
     redirect_url VARCHAR(2048) NOT NULL,
     scopes VARCHAR(1024) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT UTC_TIMESTAMP,
     claimed BOOLEAN NOT NULL,
     revoked BOOLEAN NOT NULL
 );
@@ -86,7 +86,7 @@ CREATE TABLE client (
     client_id CHAR(36) NOT NULL,
     client_name VARCHAR(64) NOT NULL,
     description VARCHAR(255),
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT UTC_TIMESTAMP,
     enabled BOOLEAN NOT NULL,
     client_expired BOOLEAN NOT NULL,
     client_locked BOOLEAN NOT NULL
@@ -120,10 +120,10 @@ CREATE INDEX idx_client_account_xref ON account_client(client_uuid);
 CREATE TABLE servicetoken (
     uuid CHAR(36) PRIMARY KEY,
     service_name VARCHAR(32) NOT NULL,
-    service_token VARCHAR(2048) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    service_token VARCHAR(2048) NOT NULL DEFAULT UTC_TIMESTAMP,
     service_expires TIMESTAMP NOT NULL,
     refresh_token VARCHAR(128) NOT NULL,
-    refresh_expires TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    refresh_expires TIMESTAMP NOT NULL DEFAULT UTC_TIMESTAMP
 );
 CREATE INDEX idx_servicetoken_servicename ON servicetoken(service_name);
 CREATE INDEX idx_servicetoken_refreshexpires ON servicetoken(refresh_expires);

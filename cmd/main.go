@@ -12,6 +12,13 @@ import (
 
 func main() {
 
+	// set logging to json format for application
+	jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})
+	slog.SetDefault(slog.New(jsonHandler))
+
+	// set up logger for main
 	logger := slog.Default().With(slog.String(util.ComponentKey, util.ComponentMain))
 
 	// service definition
