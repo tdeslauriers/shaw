@@ -26,15 +26,16 @@ func main() {
 		ServiceName: "shaw",
 		Tls:         config.MutualTls,
 		Requires: config.Requires{
-			Client:           true,
+			S2sClient:        true,
 			Db:               true,
 			IndexKey:         true,
 			AesKey:           true,
-			UserAuthUrl:      false,
 			S2sSigningKey:    false,
 			S2sVerifyingKey:  true,
+			Identity:         false, // identity service does not require itself
 			UserSigningKey:   true,
 			UserVerifyingKey: false,
+			OauthRedirect:    false,
 		},
 	}
 

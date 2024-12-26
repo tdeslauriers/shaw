@@ -17,8 +17,8 @@ docker run -p $(op read "op://world_site/shaw_service_container_dev/port"):8443 
     -e SHAW_DATABASE_NAME="$(op read "op://world_site/shaw_db_dev/database")" \
     -e SHAW_DATABASE_USERNAME="$(op read "op://world_site/shaw_db_dev/username")" \
     -e SHAW_DATABASE_PASSWORD="$(op read "op://world_site/shaw_db_dev/password")" \
-    -e SHAW_DATABASE_INDEX_HMAC="$(op read "op://world_site/shaw_hmac_index_secret_dev/secret")" \
-    -e SHAW_FIELD_LEVEL_AES_GCM_KEY="$(op read "op://world_site/shaw_aes_gcm_secret_dev/secret")" \
+    -e SHAW_DATABASE_HMAC_INDEX_SECRET="$(op read "op://world_site/shaw_hmac_index_secret_dev/secret")" \
+    -e SHAW_FIELD_LEVEL_AES_GCM_SECRET="$(op read "op://world_site/shaw_aes_gcm_secret_dev/secret")" \
     -e SHAW_USER_JWT_SIGNING_KEY="$(op read "op://world_site/shaw_jwt_key_pair_dev/signing_key")" \
     -e SHAW_USER_JWT_VERIFYING_KEY="$(op read "op://world_site/shaw_jwt_key_pair_dev/verifying_key")" \
     -e SHAW_S2S_JWT_VERIFYING_KEY="$(op read "op://world_site/ran_jwt_key_pair_dev/verifying_key")" \
