@@ -88,7 +88,6 @@ func New(config config.Config) (Identity, error) {
 	repository := data.NewSqlRepository(db)
 
 	// indexer
-	fmt.Printf("hmacSecret: %v\n", config.Database.IndexSecret)
 	hmacSecret, err := base64.StdEncoding.DecodeString(config.Database.IndexSecret)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode hmac secret: %v", err)
