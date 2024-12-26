@@ -2,9 +2,9 @@
 
 docker build -t shaw .
 
-docker run -p 8448:8443 \
-    -e SHAW_SERVICE_CLIENT_ID=881fad85-3a1b-44a6-bfd4-20a75aeead05 \
-    -e SHAW_SERVICE_PORT=":8443" \
+docker run -p $(op read "op://world_site/shaw_service_container_dev/port"):8443 \
+    -e SHAW_SERVICE_CLIENT_ID=$(op read "op://world_site/shaw_service_container_dev/client_id") \
+    -e SHAW_SERVICE_PORT=":$(op read "op://world_site/shaw_service_container_dev/port")" \
     -e SHAW_CA_CERT="$(op document get "service_ca_dev_cert" --vault world_site | base64 -w 0)" \
     -e SHAW_SERVER_CERT="$(op document get "shaw_service_server_dev_cert" --vault world_site | base64 -w 0)" \
     -e SHAW_SERVER_KEY="$(op document get "shaw_service_server_dev_key" --vault world_site | base64 -w 0)" \

@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Service client id and port
-export SHAW_SERVICE_CLIENT_ID=881fad85-3a1b-44a6-bfd4-20a75aeead05
-export SHAW_SERVICE_PORT=":8445"  # 8445 for dev, 8443 for prod
+export SHAW_SERVICE_CLIENT_ID=$(op read "op://world_site/shaw_service_app_local/client_id")
+export SHAW_SERVICE_PORT=":$(op read "op://world_site/shaw_service_app_local/port")"
 
 # certs
 export SHAW_CA_CERT=$(op document get "service_ca_dev_cert" --vault world_site | base64 -w 0)
