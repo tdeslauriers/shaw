@@ -151,9 +151,6 @@ func New(config config.Config) (Identity, error) {
 	// identity jwt signer
 	iamSigner := jwt.NewSigner(iamPrivateKey)
 
-	// password change service
-	// TODO: implement password change service
-
 	return &identity{
 		config:          config,
 		serverTls:       serverTlsConfig,
@@ -165,9 +162,6 @@ func New(config config.Config) (Identity, error) {
 		registerService: register.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller),
 		userService:     user.NewService(repository, indexer, cryptor),
 		cleanup:         schedule.NewCleanup(repository),
-		// user token verifier
-		// refresh service
-		// password change service
 
 		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentIdentity)),
 	}, nil
@@ -186,9 +180,6 @@ type identity struct {
 	registerService register.Service
 	userService     user.Service
 	cleanup         schedule.Cleanup
-	// user token verifier
-	// refresh service
-	// password change service
 
 	logger *slog.Logger
 }
