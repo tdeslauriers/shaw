@@ -18,6 +18,11 @@ export SHAW_DB_CA_CERT=$(op document get "db_ca_dev_cert" --vault world_site | b
 export SHAW_DB_CLIENT_CERT=$(op document get "shaw_db_client_dev_cert" --vault world_site | base64 -w 0)
 export SHAW_DB_CLIENT_KEY=$(op document get "shaw_db_client_dev_key" --vault world_site | base64 -w 0)
 
+# S2S Auth creds
+export SHAW_S2S_AUTH_URL=$(op read "op://world_site/ran_service_app_local/url"):$(op read "op://world_site/ran_service_app_local/port")
+export SHAW_S2S_AUTH_CLIENT_ID=$(op read "op://world_site/shaw_s2s_login_dev/username")
+export SHAW_S2S_AUTH_CLIENT_SECRET=$(op read "op://world_site/shaw_s2s_login_dev/password")
+
 # Database connection details + creds
 export SHAW_DATABASE_URL=$(op read "op://world_site/shaw_db_dev/server"):$(op read "op://world_site/shaw_db_dev/port")
 export SHAW_DATABASE_NAME=$(op read "op://world_site/shaw_db_dev/database")
@@ -30,14 +35,10 @@ export SHAW_DATABASE_HMAC_INDEX_SECRET=$(op read "op://world_site/shaw_hmac_inde
 # Field level encryption key for database fields
 export SHAW_FIELD_LEVEL_AES_GCM_SECRET=$(op read "op://world_site/shaw_aes_gcm_secret_dev/secret")
 
+# S2S JWT verifying key --> validate the s2s jwt
+export SHAW_S2S_JWT_VERIFYING_KEY=$(op read "op://world_site/ran_jwt_key_pair_dev/verifying_key")
+
 # User JWT signing key --> sign the jwt and provide verifying key to validate the jwt to client services
 export SHAW_USER_JWT_SIGNING_KEY=$(op read "op://world_site/shaw_jwt_key_pair_dev/signing_key")
 export SHAW_USER_JWT_VERIFYING_KEY=$(op read "op://world_site/shaw_jwt_key_pair_dev/verifying_key")
 
-# S2S JWT verifying key --> validate the s2s jwt
-export SHAW_S2S_JWT_VERIFYING_KEY=$(op read "op://world_site/ran_jwt_key_pair_dev/verifying_key")
-
-# S2S Auth creds
-export SHAW_S2S_AUTH_URL=$(op read "op://world_site/shaw_s2s_login_dev/url")
-export SHAW_S2S_AUTH_CLIENT_ID=$(op read "op://world_site/shaw_s2s_login_dev/username")
-export SHAW_S2S_AUTH_CLIENT_SECRET=$(op read "op://world_site/shaw_s2s_login_dev/password")
