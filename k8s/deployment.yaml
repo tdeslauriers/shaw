@@ -1,0 +1,140 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shaw
+  namespace: world
+  labels:
+    app: shaw
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: shaw
+  template:
+    metadata:
+      labels:
+        app: shaw
+    spec:
+      containers:
+        - name: shaw
+          image: tdeslauriers/shaw:latest
+          ports:
+            - containerPort: 8443
+          env:
+            - name: SHAW_SERVICE_CLIENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: cm-identity-service
+                  key: identity-client-id
+            - name: SHAW_SERVICE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: cm-identity-service
+                  key: identity-port
+            - name: SHAW_CA_CERT
+              valueFrom:
+                secretKeyRef:
+                  name: secret-server-ca-prod
+                  key: server-ca-cert
+            - name: SHAW_SERVER_CERT
+              valueFrom:
+                secretKeyRef:
+                  name: secret-identity-server-cert
+                  key: server-cert
+            - name: SHAW_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: secret-identity-server-cert
+                  key: server-key
+            - name: SHAW_CLIENT_CERT
+              valueFrom:
+                secretKeyRef:
+                  name: secret-identity-client-cert
+                  key: client-cert
+            - name: SHAW_CLIENT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: secret-identity-client-cert
+                  key: client-key
+            - name: SHAW_S2S_AUTH_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: cm-s2s-service
+                  key: s2s-auth-url
+            - name: SHAW_S2S_AUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: secret-identity-s2s-client-creds
+                  key: s2s-auth-client-id
+            - name: SHAW_S2S_AUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: secret-identity-s2s-client-creds
+                  key: s2s-auth-client-secret
+            - name: SHAW_DB_CA_CERT
+              valueFrom:
+                secretKeyRef:
+                  name: secret-db-ca-prod
+                  key: db-ca-cert
+            - name: SHAW_DB_CLIENT_CERT
+              valueFrom:
+                secretKeyRef:
+                  name: secret-identity-db-client-cert
+                  key: client-cert
+            - name: SHAW_DB_CLIENT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: secret-identity-db-client-cert
+                  key: client-key
+            - name: SHAW_DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: cm-identity-db
+                  key: db-url
+            - name: SHAW_DATABASE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: cm-identity-db
+                  key: db-name
+            - name: SHAW_DATABASE_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: cm-identity-db
+                  key: db-username
+            - name: SHAW_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: secret-identity-db
+                  key: db-password
+            - name: SHAW_DATABASE_HMAC_INDEX_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: secret-identity-db
+                  key: hmac-index-secret
+            - name: SHAW_FIELD_LEVEL_AES_GCM_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: secret-identity-db
+                  key: aes-gcm-secret
+            - name: SHAW_S2S_JWT_VERIFYING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: secret-s2s-jwt-signing
+                  key: jwt-verifying-key
+            - name: SHAW_USER_JWT_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: secret-identity-jwt-signing
+                  key: jwt-signing-key
+            - name: SHAW_USER_JWT_VERIFYING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: secret-identity-jwt-signing
+                  key: jwt-verifying-key
+          resources:
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+            requests:
+              memory: "64Mi"
+              cpu: "250m"
