@@ -14,7 +14,7 @@ if [[ -z "$S2S_AUTH_CLIENT_ID" || -z "$S2S_AUTH_CLIENT_SECRET" ]]; then
   exit 1
 fi
 
-# create the TLS secret --> note: using generic secret type because injecting as base64 encoded string to app
+# create the s2s service creds secret
 kubectl create secret generic $SECRET_NAME \
   --namespace $NAMESPACE \
   --from-literal=s2s-auth-client-id="$S2S_AUTH_CLIENT_ID" \
