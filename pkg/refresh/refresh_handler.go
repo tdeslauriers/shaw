@@ -120,7 +120,7 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// get user data
-	u, err := h.user.GetByUsername(refresh.Username)
+	u, err := h.user.GetProfile(refresh.Username)
 	if err != nil {
 		h.logger.Error(fmt.Sprintf("failed to get user %s data", refresh.Username), "err", err.Error())
 		h.user.HandleServiceErr(err, w)

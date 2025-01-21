@@ -5,70 +5,137 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"shaw/internal/util"
+	"shaw/pkg/scope"
 	"strings"
 	"sync"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/profile"
-	"github.com/tdeslauriers/carapace/pkg/validate"
-	"golang.org/x/crypto/bcrypt"
+	"github.com/tdeslauriers/carapace/pkg/session/provider"
 )
 
+// Service is the interface for the user service functionality like retrieving user data by username from the db.
 type Service interface {
 	UserService
+	ProfileService
 	UserErrService
 }
 
-// Service is the interface for the user service functionality like retrieving user data by username from the db.
-type UserService interface {
+var _ Service = (*service)(nil)
 
-	// GetUserByUsername retrieves user data by username from the database.
-	GetByUsername(username string) (*profile.User, error)
-
-	// Update updates the user data in the database.
-	Update(user *profile.User) error
-
-	// IsActive checks if the user is active.
-	IsActive(u *profile.User) (bool, error)
-
-	// ResetPassword updates the users password in the database.
-	// Note: this will check if the user exists, is valid, and if the current password is correct
-	ResetPassword(username string, cmd profile.ResetCmd) error
+type service struct {
+	UserService
+	ProfileService
+	UserErrService
 }
 
-type UserErrService interface {
-	// HandleServiceErr handles errors that occur during user service operations.
-	HandleServiceErr(err error, w http.ResponseWriter)
-}
-
-func NewService(db data.SqlRepository, i data.Indexer, c data.Cryptor) Service {
-	return &service{
-		db:    db,
-		index: i,
-		crypt: c,
+func NewService(db data.SqlRepository, i data.Indexer, c data.Cryptor, p provider.S2sTokenProvider, call connect.S2sCaller) Service {
+	return &userService{
+		db:     db,
+		index:  i,
+		crypt:  c,
+		scopes: scope.NewScopesService(db, i, p, call),
 
 		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentUser)),
 	}
 }
 
-var _ Service = (*service)(nil)
+var _ Service = (*userService)(nil)
 
-// service is the concrete implementation of the user Service interface.
-type service struct {
-	db    data.SqlRepository
-	index data.Indexer
-	crypt data.Cryptor
+// userService is the concrete implementation of the user Service interface.
+type userService struct {
+	db     data.SqlRepository
+	index  data.Indexer
+	crypt  data.Cryptor
+	scopes scope.ScopesService
 
 	logger *slog.Logger
 }
 
-// GetUserByUsername retrieves user data by username from the database.
-func (s *service) GetByUsername(username string) (*profile.User, error) {
+// Service is the interface for the user service functionality like retrieving user data by username from the db.
+type UserService interface {
+
+	// GetUsers retrieves all user data from the database.
+	GetUsers() ([]Profile, error)
+
+	// GetUser retrieves user data by username from the database.
+	GetUser(username string) (*profile.User, error)
+
+	// Update updates the user data in the database.
+	Update(user *Profile) error
+
+	// IsActive checks if the user is active.
+	IsActive(u *Profile) (bool, error)
+}
+
+// GetUsers retrieves all user data from the database.
+func (s *userService) GetUsers() ([]Profile, error) {
+
+	var users []Profile
+	qry := `SELECT
+				uuid,
+				username,
+				firstname,
+				lastname,
+				birth_date,
+				slug,
+				created_at,
+				enabled,
+				account_expired,
+				account_locked
+			FROM account`
+	if err := s.db.SelectRecords(qry, &users); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, errors.New(ErrUsersNotFound)
+		}
+		return nil, fmt.Errorf("failed to retrieve user records: %v", err)
+	}
+
+	// decrypt user data
+	for i := range users {
+		if err := s.decryptProfile(&users[i]); err != nil {
+			return nil, err
+		}
+	}
+
+	return users, nil
+
+}
+
+// GetUser retrieves user data by username from the database.
+func (s *userService) GetUser(username string) (*profile.User, error) {
+
+	// get profile data
+	usr, err := s.getByUsername(username)
+	if err != nil {
+
+		return nil, err
+	}
+
+	// get scopes
+	// service left empty for now because not service specific
+	scopes, err := s.scopes.GetUserScopes(username, "")
+	if err != nil {
+		return nil, err
+	}
+
+	return &profile.User{
+		Username:       usr.Username,
+		Firstname:      usr.Firstname,
+		Lastname:       usr.Lastname,
+		BirthDate:      usr.BirthDate,
+		Slug:           usr.Slug,
+		CreatedAt:      usr.CreatedAt,
+		Enabled:        usr.Enabled,
+		AccountLocked:  usr.AccountLocked,
+		AccountExpired: usr.AccountExpired,
+		Scopes:         scopes,
+	}, nil
+}
+
+func (s *userService) getByUsername(username string) (*Profile, error) {
 
 	// lightweight input validation
 	if len(username) < 5 || len(username) > 255 {
@@ -95,7 +162,7 @@ func (s *service) GetByUsername(username string) (*profile.User, error) {
 				account_locked 
 			FROM account 
 			WHERE user_index = ?`
-	var user profile.User
+	var user Profile
 	if err := s.db.SelectRecord(qry, &user, index); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, errors.New(ErrUserNotFound)
@@ -103,72 +170,15 @@ func (s *service) GetByUsername(username string) (*profile.User, error) {
 		return nil, fmt.Errorf("failed to retrieve user %s data: %v", username, err)
 	}
 
-	var (
-		wg      sync.WaitGroup
-		errChan = make(chan error, 3)
-
-		decryptedUsername  string
-		decryptedFirstname string
-		decryptedLastname  string
-		decryptBirthDate   string
-		decryptedSlug      string
-	)
-
-	// decrypt user data
-	wg.Add(4)
-	go s.decrypt(user.Username, ErrDecryptUsername, &decryptedUsername, errChan, &wg)
-	go s.decrypt(user.Firstname, ErrDecryptFirstname, &decryptedFirstname, errChan, &wg)
-	go s.decrypt(user.Lastname, ErrDecryptLastname, &decryptedLastname, errChan, &wg)
-	go s.decrypt(user.Slug, ErrDecryptSlug, &decryptedSlug, errChan, &wg)
-
-	if user.BirthDate != "" {
-		wg.Add(1)
-		go s.decrypt(user.BirthDate, ErrDecryptBirthDate, &decryptBirthDate, errChan, &wg)
+	if err := s.decryptProfile(&user); err != nil {
+		return nil, err
 	}
-
-	wg.Wait()
-	close(errChan)
-
-	// check for decryption errors
-	errCount := len(errChan)
-	if errCount > 0 {
-		var builder strings.Builder
-		counter := 0
-		for err := range errChan {
-			builder.WriteString(fmt.Sprintf("%d. %v\n", counter, err))
-			if counter < errCount-1 {
-				builder.WriteString("; ")
-			}
-			counter++
-		}
-		return nil, fmt.Errorf("failed to decrypt user data: %s", builder.String())
-	}
-
-	// update user data with decrypted values
-	user.Username = decryptedUsername
-	user.Firstname = decryptedFirstname
-	user.Lastname = decryptedLastname
-	user.BirthDate = decryptBirthDate
-	user.Slug = decryptedSlug
 
 	return &user, nil
 }
 
-// decrypt is a helper method that abstracts away the decryption process for encrypted strings.
-func (s *service) decrypt(encrypted, errMsg string, plaintext *string, ch chan error, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	decrypted, err := s.crypt.DecryptServiceData(encrypted)
-	if err != nil {
-		ch <- fmt.Errorf("%s: %v", errMsg, err)
-		return
-	}
-
-	*plaintext = decrypted
-}
-
 // Update updates the user data in the database.
-func (s *service) Update(user *profile.User) error {
+func (s *userService) Update(user *Profile) error {
 
 	// validate user data before updating
 	// redundant, but necessary for data integrity and good practice
@@ -245,21 +255,8 @@ func (s *service) Update(user *profile.User) error {
 	return nil
 }
 
-// encrypt is a helper function that abstracts the service encryption process for plaintext strings.
-func (s *service) encrypt(plaintext, errMsg string, encrypted *string, ch chan error, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	ciphertext, err := s.crypt.EncryptServiceData(plaintext)
-	if err != nil {
-		ch <- fmt.Errorf("%s: %v", errMsg, err)
-		return
-	}
-
-	*encrypted = ciphertext
-}
-
 // IsActive checks if the user is active.
-func (s *service) IsActive(u *profile.User) (bool, error) {
+func (s *userService) IsActive(u *Profile) (bool, error) {
 
 	if !u.Enabled {
 		return false, fmt.Errorf("%s: %s", ErrUserDisabled, u.Username)
@@ -276,168 +273,78 @@ func (s *service) IsActive(u *profile.User) (bool, error) {
 	return true, nil
 }
 
-// ResetPassword is the concrete implementation of the method which updates the users password in the database.
-func (s *service) ResetPassword(username string, cmd profile.ResetCmd) error {
+// decryptProfile is a helper function that abstracts the decryption process for user profile data.
+func (s *userService) decryptProfile(user *Profile) error {
 
-	// lightweight input validation of username
-	if len(username) < validate.EmailMin || len(username) > validate.EmailMax {
-		return fmt.Errorf("%s: username must be between %d and %d characters", ErrInvalidUserData, validate.EmailMin, validate.EmailMax)
-	}
+	var (
+		wg      sync.WaitGroup
+		errChan = make(chan error, 5)
 
-	// validate current password: lightweight input validation > proper validation below
-	if len(cmd.CurrentPassword) < validate.PasswordMin || len(cmd.CurrentPassword) > validate.PasswordMax {
-		return fmt.Errorf("%s: current password must be between %d and %d characters", ErrInvalidUserData, validate.PasswordMin, validate.PasswordMax)
-	}
+		decryptedUsername  string
+		decryptedFirstname string
+		decryptedLastname  string
+		decryptedBirthDate string
+		decryptedSlug      string
+	)
 
-	// validate new password is well formed and complies with complexity requirements
-	if err := validate.IsValidPassword(cmd.NewPassword); err != nil {
-		return fmt.Errorf("new password fails complexity requirements: %v", err)
-	}
+	// decrypt user data
+	wg.Add(5)
+	go s.decrypt(user.Username, ErrDecryptUsername, &decryptedUsername, errChan, &wg)
+	go s.decrypt(user.Firstname, ErrDecryptFirstname, &decryptedFirstname, errChan, &wg)
+	go s.decrypt(user.Lastname, ErrDecryptLastname, &decryptedLastname, errChan, &wg)
+	go s.decrypt(user.BirthDate, ErrDecryptBirthDate, &decryptedBirthDate, errChan, &wg)
+	go s.decrypt(user.Slug, ErrDecryptSlug, &decryptedSlug, errChan, &wg)
 
-	// validate password == confirmation: redundant, but necessary for data integrity and good practice
-	if cmd.NewPassword != cmd.ConfirmPassword {
-		return fmt.Errorf("%s", ErrNewConfirmPwMismatch)
-	}
+	wg.Wait()
+	close(errChan)
 
-	// generate user index
-	index, err := s.index.ObtainBlindIndex(username)
-	if err != nil {
-		return fmt.Errorf("%s for %s: %v", ErrGenUserIndex, username, err)
-	}
-
-	var history []UserPasswordHistory
-	qry := `SELECT
-	a.uuid AS user_uuid,
-	a.username,
-	a.password AS current_password,
-	a.enabled,
-	a.account_expired,
-	a.account_locked,
-	ph.uuid AS password_history_uuid,
-	ph.password AS history_password,
-	ph.updated
-	FROM account a
-	LEFT OUTER JOIN password_history ph ON a.uuid = ph.account_uuid
-	WHERE a.user_index = ?`
-	if err := s.db.SelectRecords(qry, &history, index); err != nil {
-		if err == sql.ErrNoRows {
-			// this should never happen: pulled from token
-			s.logger.Error(fmt.Sprintf("user %s not found", username))
-			return fmt.Errorf("%s: %s", ErrUserNotFound, username)
+	// check for decryption errors
+	errCount := len(errChan)
+	if errCount > 0 {
+		var builder strings.Builder
+		counter := 0
+		for err := range errChan {
+			builder.WriteString(fmt.Sprintf("%d. %v\n", counter, err))
+			if counter < errCount-1 {
+				builder.WriteString("; ")
+			}
+			counter++
 		}
-		s.logger.Error(fmt.Sprintf("password reset failed: failed to retrieve user %s data", username), "err", err.Error())
-		return fmt.Errorf("failed to retrieve user %s data: %v", username, err)
+		return fmt.Errorf("failed to decrypt user data: %s", builder.String())
 	}
 
-	// check that records exist to evaluate.
-	// this should not be possible.
-	if len(history) < 1 {
-		s.logger.Error(fmt.Sprintf("password reset failed: no password history records found for user: %s", username))
-		return fmt.Errorf("no password history records found for user: %s", username)
-	}
-
-	// check if user is enabled, not locked, and not expired before hashing operations
-	if !history[0].Enabled {
-
-		return fmt.Errorf("%s: %s", ErrUserDisabled, username)
-	}
-
-	if history[0].AccountLocked {
-		return fmt.Errorf("%s: %s", ErrUserLocked, username)
-	}
-
-	if history[0].AccountExpired {
-		return fmt.Errorf("%s: %s", ErrUserExpired, username)
-	}
-
-	// validate current password
-	current := []byte(cmd.CurrentPassword)
-	currentHash := []byte(history[0].CurrentPassword)
-	if err := bcrypt.CompareHashAndPassword(currentHash, current); err != nil {
-		return fmt.Errorf("%s for user %s", ErrInvalidPassword, username)
-	}
-
-	// hash new password
-	newHash, err := bcrypt.GenerateFromPassword([]byte(cmd.NewPassword), 13)
-	if err != nil {
-		s.logger.Error(fmt.Sprintf("password reset failed: failed to hash new password for user %s", username), "err", err.Error())
-		return fmt.Errorf("failed to hash new password")
-	}
-
-	// validate new password is not the same as any previous password
-	for _, h := range history {
-		// If no error, then a match => password has already been used.
-		if err := bcrypt.CompareHashAndPassword([]byte(h.HistoryPassword), []byte(cmd.NewPassword)); err == nil {
-			s.logger.Error(fmt.Sprintf("password reset failed: user %s's new %s: %s", username, ErrPasswordUsedPreviously, h.Updated.Format("2006-01-02 15:04:05")))
-			return fmt.Errorf("%s: %s", ErrPasswordUsedPreviously, h.Updated.Format("2006-01-02 15:04:05"))
-		}
-	}
-
-	// update password in account table
-	qry = `UPDATE account SET password = ? WHERE user_index = ?`
-	if err := s.db.UpdateRecord(qry, string(newHash), index); err != nil {
-		s.logger.Error(fmt.Sprintf("password reset failed: failed to update user %s's password", username), "err", err.Error())
-		return fmt.Errorf("failed to update user %s's password", username)
-	}
-	s.logger.Info(fmt.Sprintf("successfully updated user %s's password in account record", username))
-
-	// insert new password history record into password_history table
-	// dont wait for success, return immediately
-	go func() {
-
-		id, err := uuid.NewRandom()
-		if err != nil {
-			s.logger.Error(fmt.Sprintf("password reset failed: failed to generate uuid for user %s's new password history record", username), "err", err.Error())
-			return
-		}
-
-		record := PasswordHistory{
-			Id:        id.String(),
-			Password:  string(newHash),
-			Updated:   time.Now().UTC().Format("2006-01-02 15:04:05"),
-			AccountId: history[0].AccountId,
-		}
-
-		qry = `INSERT INTO password_history (uuid, password, updated, account_uuid) VALUES (?, ?, ?, ?)`
-		if err := s.db.InsertRecord(qry, record); err != nil {
-			s.logger.Error(fmt.Sprintf("password reset failed: failed to insert new password history record for user %s", username), "err", err.Error())
-			return
-		}
-		s.logger.Info(fmt.Sprintf("successfully updated user %s's password history", username))
-	}()
+	// update user data with decrypted values
+	user.Username = decryptedUsername
+	user.Firstname = decryptedFirstname
+	user.Lastname = decryptedLastname
+	user.BirthDate = decryptedBirthDate
+	user.Slug = decryptedSlug
 
 	return nil
 }
 
-// HandleServiceErr handles errors that occur during user service operations and sends a json error response.
-func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
-	switch {
-	case strings.Contains(err.Error(), ErrUserNotFound):
-	case strings.Contains(err.Error(), ErrUserDisabled):
-	case strings.Contains(err.Error(), ErrUserLocked):
-	case strings.Contains(err.Error(), ErrUserExpired):
-	case strings.Contains(err.Error(), ErrInvalidPassword):
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusUnauthorized,
-			Message:    err.Error(),
-		}
-		e.SendJsonErr(w)
-		return
-	case strings.Contains(err.Error(), ErrInvalidUserData):
-	case strings.Contains(err.Error(), ErrPasswordUsedPreviously):
-	case strings.Contains(err.Error(), ErrNewConfirmPwMismatch):
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusUnprocessableEntity,
-			Message:    err.Error(),
-		}
-		e.SendJsonErr(w)
-		return
-	default:
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusInternalServerError,
-			Message:    "internal server error",
-		}
-		e.SendJsonErr(w)
+// decrypt is a helper method that abstracts away the decryption process for encrypted strings.
+func (s *userService) decrypt(encrypted, errMsg string, plaintext *string, ch chan error, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	decrypted, err := s.crypt.DecryptServiceData(encrypted)
+	if err != nil {
+		ch <- fmt.Errorf("%s: %v", errMsg, err)
 		return
 	}
+
+	*plaintext = decrypted
+}
+
+// encrypt is a helper function that abstracts the service encryption process for plaintext strings.
+func (s *userService) encrypt(plaintext, errMsg string, encrypted *string, ch chan error, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	ciphertext, err := s.crypt.EncryptServiceData(plaintext)
+	if err != nil {
+		ch <- fmt.Errorf("%s: %v", errMsg, err)
+		return
+	}
+
+	*encrypted = ciphertext
 }

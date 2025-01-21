@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"shaw/internal/util"
+	"shaw/pkg/scope"
+
 	"strings"
 	"testing"
 	"time"
@@ -297,10 +299,10 @@ type mockAuthSqlRepository struct{}
 
 func (dao *mockAuthSqlRepository) SelectRecords(query string, records interface{}, args ...interface{}) error {
 	switch r := records.(type) {
-	case *[]AccountScope:
+	case *[]scope.AccountScope:
 		if args[0] == UserIndex {
 
-			*records.(*[]AccountScope) = []AccountScope{
+			*records.(*[]scope.AccountScope) = []scope.AccountScope{
 				{
 					Id:          1,
 					AccountUuid: "1234",

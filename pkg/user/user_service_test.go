@@ -4,10 +4,15 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"shaw/pkg/scope"
+
+	"log/slog"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/tdeslauriers/carapace/pkg/profile"
+	"github.com/tdeslauriers/carapace/pkg/session/types"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -16,26 +21,38 @@ const (
 	ValidFirstname = "Darth"
 	ValidLastname  = "Vader"
 	ValidDob       = "1977-05-25"
+	ValidSlug      = "24373f96-cc7c-443a-adf9-f0230af6feb2"
 )
 
-func TestGetByUsername(t *testing.T) {
+func BenchmarkGetUsers(t *testing.B) {
+
+	svc := NewService(&mockUserSqlRepository{}, &mockUserIndexer{}, &mockUserCryptor{}, &mockS2sTokenProvider{}, &mockS2sCaller{})
+
+	_, err := svc.GetUsers()
+	if err != nil {
+		t.Errorf("failed to get users: %s", err.Error())
+	}
+}
+
+func TestGetProfile(t *testing.T) {
 
 	// test cases
 	testCases := []struct {
 		name         string
 		username     string
-		expectedUser *profile.User
+		expectedUser *Profile
 		expectedErr  error
 	}{
 		{
 			name:     "success - valid username",
 			username: "darth.vader@empire.com",
-			expectedUser: &profile.User{
+			expectedUser: &Profile{
 				Id:        "uuid-1",
 				Username:  "darth.vader@empire.com",
 				Firstname: "Darth",
 				Lastname:  "Vader",
 				BirthDate: "1977-05-25",
+				Slug:      "darth-vader",
 			},
 			expectedErr: nil,
 		},
@@ -59,11 +76,11 @@ func TestGetByUsername(t *testing.T) {
 		},
 	}
 
-	svc := NewService(&mockUserSqlRepository{}, &mockUserIndexer{}, &mockUserCryptor{})
+	svc := NewService(&mockUserSqlRepository{}, &mockUserIndexer{}, &mockUserCryptor{}, &mockS2sTokenProvider{}, &mockS2sCaller{})
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := svc.GetByUsername(tc.username)
+			_, err := svc.GetProfile(tc.username)
 			if err != nil && !strings.Contains(err.Error(), tc.expectedErr.Error()) {
 				t.Errorf("expected %v, got %v", tc.expectedErr, err)
 			}
@@ -76,72 +93,78 @@ func TestUpdate(t *testing.T) {
 	// test cases
 	testCases := []struct {
 		name        string
-		user        *profile.User
+		user        *Profile
 		expectedErr error
 	}{
 		{
 			name: "success - valid update",
-			user: &profile.User{
+			user: &Profile{
 				Username:  ValidUsername,
 				Firstname: ValidFirstname,
 				Lastname:  ValidLastname,
 				BirthDate: ValidDob,
+				Slug:      ValidSlug,
 			},
 			expectedErr: nil,
 		},
 		{
 			name: "failure - empty firstname",
-			user: &profile.User{
+			user: &Profile{
 				Username:  ValidUsername,
 				Firstname: "",
 				Lastname:  ValidLastname,
 				BirthDate: ValidDob,
+				Slug:      ValidSlug,
 			},
 			expectedErr: errors.New("invalid firstname"),
 		},
 		{
 			name: "failure - empty lastname",
-			user: &profile.User{
+			user: &Profile{
 				Username:  ValidUsername,
 				Firstname: ValidFirstname,
 				Lastname:  "",
 				BirthDate: ValidDob,
+				Slug:      ValidSlug,
 			},
 			expectedErr: errors.New("invalid lastname"),
 		},
 		{
 			name: "failure - empty dob month",
-			user: &profile.User{
+			user: &Profile{
 				Username:  ValidUsername,
 				Firstname: ValidFirstname,
 				Lastname:  ValidLastname,
 				BirthDate: "1977-05",
+				Slug:      ValidSlug,
 			},
 			expectedErr: errors.New("birth date not properly formatted"),
 		},
 		{
 			name: "failure - dob in future",
-			user: &profile.User{
+			user: &Profile{
 				Username:  ValidUsername,
 				Firstname: ValidFirstname,
 				Lastname:  ValidLastname,
 				BirthDate: "2122-05-25",
+				Slug:      ValidSlug,
 			},
 			expectedErr: errors.New("birth date cannot be in the future"),
 		},
 		{
 			name: "failure - update failure",
-			user: &profile.User{
+			user: &Profile{
 				Username:  "failure-to-update-user",
 				Firstname: ValidFirstname,
 				Lastname:  ValidLastname,
 				BirthDate: ValidDob,
+				Slug:      ValidSlug,
 			},
 			expectedErr: errors.New("failed to update user"),
 		},
 	}
 
-	svc := NewService(&mockUserSqlRepository{}, &mockUserIndexer{}, &mockUserCryptor{})
+	svc := NewService(&mockUserSqlRepository{}, &mockUserIndexer{}, &mockUserCryptor{}, &mockS2sTokenProvider{}, &mockS2sCaller{})
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -303,7 +326,7 @@ func TestResetPassword(t *testing.T) {
 		},
 	}
 
-	svc := NewService(&mockUserSqlRepository{}, &mockUserIndexer{}, &mockUserCryptor{})
+	svc := NewService(&mockUserSqlRepository{}, &mockUserIndexer{}, &mockUserCryptor{}, &mockS2sTokenProvider{}, &mockS2sCaller{})
 
 	for _, tc := range testCases {
 
@@ -323,7 +346,7 @@ type mockUserSqlRepository struct{}
 
 func (m *mockUserSqlRepository) SelectRecord(query string, record interface{}, args ...interface{}) error {
 	switch r := record.(type) {
-	case *profile.User:
+	case *Profile:
 		switch args[0] {
 		case "index-" + ValidUsername:
 			r.Id = "uuid-1"
@@ -331,6 +354,7 @@ func (m *mockUserSqlRepository) SelectRecord(query string, record interface{}, a
 			r.Firstname = "encrypted-" + ValidFirstname
 			r.Lastname = "encrypted-" + ValidLastname
 			r.BirthDate = "encrypted-" + ValidDob
+			r.Slug = "encrypted-" + ValidSlug
 			return nil
 		case "index-" + "luke.skywalker@rebels.com":
 			r.Id = "uuid-1"
@@ -338,6 +362,7 @@ func (m *mockUserSqlRepository) SelectRecord(query string, record interface{}, a
 			r.Firstname = "failed-to-decrypt-firstname"
 			r.Lastname = "encrypted-" + ValidLastname
 			r.BirthDate = "encrypted-" + ValidDob
+			r.Slug = "encrypted-" + ValidSlug
 			return nil
 		default:
 			return sql.ErrNoRows
@@ -350,6 +375,28 @@ func (m *mockUserSqlRepository) SelectRecord(query string, record interface{}, a
 func (m *mockUserSqlRepository) SelectRecords(query string, dest interface{}, args ...interface{}) error {
 
 	switch d := dest.(type) {
+	case *[]Profile:
+		p1 := Profile{
+			Id:        "uuid-1",
+			Username:  "encrypted-" + ValidUsername,
+			Firstname: "encrypted-" + ValidFirstname,
+			Lastname:  "encrypted-" + ValidLastname,
+			BirthDate: "encrypted-" + ValidDob,
+			Slug:      "encrypted-" + ValidSlug,
+		}
+		*d = append(*d, p1)
+
+		p2 := Profile{
+			Id:        "uuid-2",
+			Username:  "encrypted-" + "luke.skywalker@rebels.com",
+			Firstname: "encrypted-" + "Luke",
+			Lastname:  "encrypted-" + "Skywalker",
+			BirthDate: "encrypted-" + "1977-05-25",
+			Slug:      "encrypted-" + "luke-skywalker",
+		}
+		*d = append(*d, p2)
+
+		return nil
 	case *[]UserPasswordHistory:
 		switch args[0] {
 		case "index-" + "record-does-not-exist":
@@ -498,6 +545,61 @@ func (m *mockUserCryptor) DecryptServiceData(data string) (string, error) {
 	return data[10:] + data, nil
 }
 
+type mockS2sTokenProvider struct{}
+
+func (tp *mockS2sTokenProvider) GetServiceToken(service string) (string, error) {
+	return "mock-service-token", nil
+}
+
+type mockS2sCaller struct{}
+
+func (c *mockS2sCaller) GetServiceData(endpoint, s2sToken, authToken string, data interface{}) error {
+	switch d := data.(type) {
+	case *[]types.Scope:
+		*data.(*[]types.Scope) = []types.Scope{
+			{
+				Uuid:        "scope-one-uuid",
+				ServiceName: "service-one",
+				Scope:       "r:service-one:*",
+				Name:        "Read Blog",
+				Description: "read the blog",
+				Active:      true,
+			},
+			{
+				Uuid:        "scope-two-uuid",
+				ServiceName: "service-two",
+				Scope:       "r:service-two:*",
+				Name:        "Read Profile",
+				Description: "read the profile",
+				Active:      true,
+			},
+			{
+				Uuid:        "scope-three-uuid",
+				ServiceName: "service-three",
+				Scope:       "r:service-three:*",
+				Name:        "Read Gallery",
+				Description: "view the gallery",
+				Active:      true,
+			},
+			{
+				Uuid:        "scope-four-uuid",
+				ServiceName: "service-four",
+				Scope:       "r:service-four:*",
+				Name:        "Read Allowance",
+				Description: "view allowance",
+				Active:      true,
+			},
+		}
+	default:
+		return fmt.Errorf("unexpected data type: %T", d)
+	}
+	return nil
+}
+func (c *mockS2sCaller) PostToService(endpoint, s2sToken, authToken string, cmd interface{}, data interface{}) error {
+	return nil
+}
+func (c *mockS2sCaller) RespondUpstreamError(err error, w http.ResponseWriter) {}
+
 func TestBcrypt(t *testing.T) {
 	current, err := bcrypt.GenerateFromPassword([]byte(ValidCurrentPassword), 13)
 	if err != nil {
@@ -516,4 +618,29 @@ func TestBcrypt(t *testing.T) {
 		t.Error("failed to compare password")
 	}
 	t.Logf("hashed history password: %s", string(historypw))
+}
+
+func BenchmarkDecryptProfile(b *testing.B) {
+
+	svc := userService{
+		&mockUserSqlRepository{},
+		&mockUserIndexer{},
+		&mockUserCryptor{},
+		scope.NewScopesService(&mockUserSqlRepository{}, &mockUserIndexer{}, &mockS2sTokenProvider{}, &mockS2sCaller{}),
+
+		slog.Default(),
+	}
+
+	p := &Profile{
+		Username:  "encrypted-" + ValidUsername,
+		Firstname: "encrypted-" + ValidFirstname,
+		Lastname:  "encrypted-" + ValidLastname,
+		BirthDate: "encrypted-" + ValidDob,
+		Slug:      "encrypted-" + ValidSlug,
+	}
+
+	err := svc.decryptProfile(p)
+	if err != nil {
+		b.Logf("failed to decrypt profile: %s", err.Error())
+	}
 }

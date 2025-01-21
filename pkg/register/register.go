@@ -20,7 +20,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var defaultScopes []string = []string{"r:shaw:profile:*", "w:shaw:profile:*", "r:silhouette:profile:*", "e:silhouette:profile:*", "r:junk:*"}
+var defaultScopes []string = []string{"r:shaw:profile:*", "w:shaw:profile:*", "r:silhouette:profile:*", "w:silhouette:profile:*", "r:junk:*"}
 
 type Service interface {
 	// Register registers a new user account and creates appropriate xrefs for default scopes and client(s)
@@ -348,7 +348,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		// insert user into database
 		query := "INSERT INTO account (uuid, username, user_index, password, firstname, lastname, birth_date, slug, slug_index, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 		if err := s.db.InsertRecord(query, a); err != nil {
-			s.logger.Error(fmt.Sprintf("failed to insert (%s) user record into account table in db", a.Username), "err", err.Error())
+			s.logger.Error(fmt.Sprintf("failed to insert (%s) user record into account table in db", cmd.Username), "err", err.Error())
 			ch <- errors.New(BuildUserErrMsg)
 			return
 		}
@@ -375,10 +375,10 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 
 		query := "INSERT INTO password_history (uuid, password, updated, account_uuid) VALUES (?, ?, ?, ?)"
 		if err := s.db.InsertRecord(query, history); err != nil {
-			ch <- fmt.Errorf("failed to insert password history record for registering user %s", a.Username)
+			ch <- fmt.Errorf("failed to insert password history record for registering user %s", cmd.Username)
 			return
 		}
-		s.logger.Info(fmt.Sprintf("password history record successfully saved for registering user %s", a.Username))
+		s.logger.Info(fmt.Sprintf("password history record successfully saved for registering user %s", cmd.Username))
 	}(account, persistErrChan, &wgPersist)
 
 	// wait for user to be saved, otherwise no need to continue.

@@ -96,7 +96,7 @@ func New(config config.Config) (Identity, error) {
 	indexer := data.NewIndexer(hmacSecret)
 
 	// field level encryption
-	aes, err := base64.StdEncoding.DecodeString(config.Database.FieldKey)
+	aes, err := base64.StdEncoding.DecodeString(config.Database.FieldSecret)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode field level encryption secret: %v", err)
 	}
@@ -160,7 +160,7 @@ func New(config config.Config) (Identity, error) {
 		authService:     authentication.NewService(repository, iamSigner, indexer, cryptor, s2sProvider, s2sCaller),
 		oathService:     oauth.NewService(repository, indexer, cryptor),
 		registerService: register.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller),
-		userService:     user.NewService(repository, indexer, cryptor),
+		userService:     user.NewService(repository, indexer, cryptor, s2sProvider, s2sCaller),
 		cleanup:         schedule.NewCleanup(repository),
 
 		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentIdentity)),
@@ -199,7 +199,7 @@ func (i *identity) Run() error {
 
 	refreshHandler := refresh.NewHandler(i.authService, i.s2sVerifier, i.userService)
 
-	profileHandler := user.NewHandler(i.userService, i.s2sVerifier, i.iamVerifier)
+	userHandler := user.NewHandler(i.userService, i.s2sVerifier, i.iamVerifier)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", diagnostics.HealthCheckHandler)
@@ -211,8 +211,9 @@ func (i *identity) Run() error {
 	mux.HandleFunc("/refresh", refreshHandler.HandleRefresh)
 	mux.HandleFunc("/refresh/destroy", refreshHandler.HandleDestroy)
 
-	mux.HandleFunc("/profile", profileHandler.HandleProfile)
-	mux.HandleFunc("/reset", profileHandler.HandleReset)
+	mux.HandleFunc("/profile", userHandler.HandleProfile)
+	mux.HandleFunc("/reset", userHandler.HandleReset)
+	mux.HandleFunc("/users", userHandler.HandleUsers)
 
 	identityServer := &connect.TlsServer{
 		Addr:      i.config.ServicePort,

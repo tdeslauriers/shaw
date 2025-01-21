@@ -28,8 +28,8 @@ func main() {
 		Requires: config.Requires{
 			S2sClient:        true,
 			Db:               true,
-			IndexKey:         true,
-			AesKey:           true,
+			IndexSecret:      true,
+			AesSecret:        true,
 			S2sSigningKey:    false,
 			S2sVerifyingKey:  true,
 			Identity:         false, // identity service does not require itself

@@ -58,7 +58,7 @@ func (h *resetHandler) HandleReset(w http.ResponseWriter, r *http.Request) {
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
-	if authorized, err := h.s2sVerifier.IsAuthorized(updateAllowed, svcToken); !authorized {
+	if authorized, err := h.s2sVerifier.IsAuthorized(updateProfileAllowed, svcToken); !authorized {
 		h.logger.Error("password reset handler failed to authorize service token", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
@@ -66,7 +66,7 @@ func (h *resetHandler) HandleReset(w http.ResponseWriter, r *http.Request) {
 
 	// validate iam access token
 	accessToken := r.Header.Get("Authorization")
-	if authorized, err := h.iamVerifier.IsAuthorized(updateAllowed, accessToken); !authorized {
+	if authorized, err := h.iamVerifier.IsAuthorized(updateProfileAllowed, accessToken); !authorized {
 		h.logger.Error("password reset handler failed to authorize iam token", "err", err.Error())
 		connect.RespondAuthFailure(connect.User, err, w)
 		return
