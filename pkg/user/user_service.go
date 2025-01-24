@@ -94,10 +94,39 @@ func (s *userService) GetUsers() ([]Profile, error) {
 	}
 
 	// decrypt user data
+	var (
+		wg      sync.WaitGroup
+		errChan = make(chan error, len(users))
+	)
+
 	for i := range users {
-		if err := s.decryptProfile(&users[i]); err != nil {
-			return nil, err
+		wg.Add(1)
+		go func(i int, ch chan error, wg *sync.WaitGroup) {
+			defer wg.Done()
+
+			if err := s.decryptProfile(&users[i]); err != nil {
+				ch <- fmt.Errorf("failed to decrypt user %s data: %v", users[i].Username, err)
+			}
+
+		}(i, errChan, &wg)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	// check for decryption errors
+	errCount := len(errChan)
+	if errCount > 0 {
+		var builder strings.Builder
+		counter := 0
+		for err := range errChan {
+			builder.WriteString(fmt.Sprintf("%d. %v\n", counter, err))
+			if counter < errCount-1 {
+				builder.WriteString("; ")
+			}
+			counter++
 		}
+		return nil, fmt.Errorf("failed to decrypt user data: %s", builder.String())
 	}
 
 	return users, nil
@@ -288,12 +317,17 @@ func (s *userService) decryptProfile(user *Profile) error {
 	)
 
 	// decrypt user data
-	wg.Add(5)
+	wg.Add(4)
 	go s.decrypt(user.Username, ErrDecryptUsername, &decryptedUsername, errChan, &wg)
 	go s.decrypt(user.Firstname, ErrDecryptFirstname, &decryptedFirstname, errChan, &wg)
 	go s.decrypt(user.Lastname, ErrDecryptLastname, &decryptedLastname, errChan, &wg)
-	go s.decrypt(user.BirthDate, ErrDecryptBirthDate, &decryptedBirthDate, errChan, &wg)
 	go s.decrypt(user.Slug, ErrDecryptSlug, &decryptedSlug, errChan, &wg)
+
+	// only decrypt birth date if it exists
+	if len(user.BirthDate) > 0 {
+		wg.Add(1)
+		go s.decrypt(user.BirthDate, ErrDecryptBirthDate, &decryptedBirthDate, errChan, &wg)
+	}
 
 	wg.Wait()
 	close(errChan)

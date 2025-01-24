@@ -45,7 +45,7 @@ type scopesService struct {
 }
 
 // GetScopes is the concrete implementation of ScopesServices's GetScopes method and gets the user scopes for username.
-// Note: service is not used in this implementation because a user's scopes are not service specific (yet).
+// Note: service param is not used in this implementation because a user's scopes are not service specific (yet).
 func (s *scopesService) GetUserScopes(username, service string) ([]types.Scope, error) {
 
 	// get user's allScopes and all allScopes
@@ -135,7 +135,7 @@ func (s *scopesService) getAllScopes(wg *sync.WaitGroup, scopes *[]types.Scope) 
 
 	// call scopes endpoint
 	var s2sScopes []types.Scope
-	if err := s.s2sCaller.GetServiceData("/scopes", s2stoken, "", &s2sScopes); err != nil {
+	if err := s.s2sCaller.GetServiceData("/service/scopes", s2stoken, "", &s2sScopes); err != nil {
 		s.logger.Error("failed to get scopes data from s2s scopes endpoint", "err", err.Error())
 		return
 	}

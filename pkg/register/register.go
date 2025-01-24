@@ -409,7 +409,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 
 	// call scopes endpoint
 	var scopes []types.Scope
-	if err := s.s2sCaller.GetServiceData("/scopes", s2stoken, "", &scopes); err != nil {
+	if err := s.s2sCaller.GetServiceData("/service/scopes", s2stoken, "", &scopes); err != nil {
 		s.logger.Error("failed to get scopes data", "err", err.Error())
 		return errors.New(BuildUserErrMsg)
 	}

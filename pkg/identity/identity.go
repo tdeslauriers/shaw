@@ -1,11 +1,8 @@
 package identity
 
 import (
-	"crypto/ecdsa"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
-	"encoding/pem"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -26,6 +23,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/schedule"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
+	"github.com/tdeslauriers/carapace/pkg/sign"
 )
 
 type Identity interface {
@@ -103,22 +101,6 @@ func New(config config.Config) (Identity, error) {
 
 	cryptor := data.NewServiceAesGcmKey(aes)
 
-	// s2s jwt verifier
-	// format public key for use in jwt verification
-	s2sPubPem, err := base64.StdEncoding.DecodeString(config.Jwt.S2sVerifyingKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode s2s jwt-verifying public key: %v", err)
-	}
-	s2sPubBlock, _ := pem.Decode(s2sPubPem)
-	s2sGenericPublicKey, err := x509.ParsePKIXPublicKey(s2sPubBlock.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse pub Block to generic public key: %v", err)
-	}
-	s2sPublicKey, ok := s2sGenericPublicKey.(*ecdsa.PublicKey)
-	if !ok {
-		return nil, fmt.Errorf("not an ECDSA public key")
-	}
-
 	// retry config for s2s callers
 	retry := connect.RetryConfiguration{
 		MaxRetries:  5,
@@ -137,15 +119,16 @@ func New(config config.Config) (Identity, error) {
 
 	s2sProvider := provider.NewS2sTokenProvider(s2sCaller, s2sCreds, repository, cryptor)
 
-	// user jwt signer
-	iamPrivPem, err := base64.StdEncoding.DecodeString(config.Jwt.UserSigningKey)
+	// s2s jwt verifing key
+	s2sPublicKey, err := sign.ParsePublicEcdsaCert(config.Jwt.S2sVerifyingKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode user jwt-signing key: %v", err)
+		return nil, fmt.Errorf("failed to parse s2s jwt verifying key: %v", err)
 	}
-	iamPrivBlock, _ := pem.Decode(iamPrivPem)
-	iamPrivateKey, err := x509.ParseECPrivateKey(iamPrivBlock.Bytes)
+
+	// user jwt signer
+	iamPrivateKey, err := sign.ParsePrivateEcdsaCert(config.Jwt.UserSigningKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse priv Block to private key: %v", err)
+		return nil, fmt.Errorf("failed to parse user jwt signing key: %v", err)
 	}
 
 	// identity jwt signer
