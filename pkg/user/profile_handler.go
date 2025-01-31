@@ -201,7 +201,7 @@ func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	// get user data for audit log
 	user, err := h.service.GetProfile(jot.Claims.Subject)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("failed to get user profile %s: %s", jot.Claims.Subject, err.Error()))
+		h.logger.Error(fmt.Sprintf("failed to get user profile %s for update: %s", jot.Claims.Subject, err.Error()))
 		h.service.HandleServiceErr(err, w)
 		return
 	}
