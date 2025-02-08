@@ -12,35 +12,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 )
 
-// service scopes required
-var (
-	getProfileAllowed    = []string{"r:shaw:profile:*"}
-	updateProfileAllowed = []string{"w:shaw:profile:*"}
-)
 
-// Handler interface for user profile request handling
-type Handler interface {
-	ProfileHandler
-	ResetHandler
-	UserHandler
-}
-
-// NewHandler creates a new Handler interface by returning a pointer to a new concrete implementation of the Handler interface
-func NewHandler(s Service, s2s jwt.Verifier, iam jwt.Verifier) Handler {
-	return &handler{
-		ProfileHandler: NewProfileHandler(s, s2s, iam),
-		ResetHandler:   NewResetHandler(s, s2s, iam),
-		UserHandler:    NewUserHandler(s, s2s, iam),
-	}
-}
-
-var _ Handler = (*handler)(nil)
-
-type handler struct {
-	ProfileHandler
-	ResetHandler
-	UserHandler
-}
 
 // ProfileHandler interface for user profile services
 type ProfileHandler interface {

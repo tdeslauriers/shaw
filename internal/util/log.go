@@ -14,4 +14,6 @@ const (
 	ComponentScopes    = "scopes"
 	ComponentUser      = "user"
 	ComponentReset     = "reset password"
+
+	ServiceKey = "service"
 )

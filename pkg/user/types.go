@@ -2,8 +2,12 @@ package user
 
 import (
 	"fmt"
+	"shaw/pkg/scope"
 
+	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
+	"github.com/tdeslauriers/carapace/pkg/jwt"
+	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/validate"
 )
 
@@ -35,6 +39,63 @@ const (
 	ErrGenUserIndex = "failed to generate user index"
 	ErrGenSlugIndex = "failed to generate slug index"
 )
+
+// service scopes required
+var (
+	getProfileAllowed    = []string{"r:shaw:profile:*"}
+	updateProfileAllowed = []string{"w:shaw:profile:*"}
+)
+
+// Handler interface for user profile request handling
+type Handler interface {
+	ProfileHandler
+	ResetHandler
+	UserHandler
+}
+
+// NewHandler creates a new Handler interface by returning a pointer to a new concrete implementation of the Handler interface
+func NewHandler(s Service, s2s jwt.Verifier, iam jwt.Verifier) Handler {
+	return &handler{
+		ProfileHandler: NewProfileHandler(s, s2s, iam),
+		ResetHandler:   NewResetHandler(s, s2s, iam),
+		UserHandler:    NewUserHandler(s, s2s, iam),
+	}
+}
+
+var _ Handler = (*handler)(nil)
+
+type handler struct {
+	ProfileHandler
+	ResetHandler
+	UserHandler
+}
+
+// Service is the interface for the user service functionality like retrieving user data by username from the db.
+type Service interface {
+	UserService
+	ResetService
+	UserErrService
+}
+
+// NewService creates a new Service interface by returning a pointer to a new concrete implementation
+// of the underlying UserService, ResetService, and UserErrService interfaces.
+func NewService(db data.SqlRepository, i data.Indexer, c data.Cryptor, p provider.S2sTokenProvider, call connect.S2sCaller) Service {
+	return &service{
+		UserService:    NewUserService(db, i, c, scope.NewScopesService(db, i, p, call)),
+		ResetService:   NewResetService(db, i),
+		UserErrService: NewUserErrService(),
+	}
+}
+
+var _ Service = (*service)(nil)
+
+// service is the concrete implementation of the Service interface
+// and is composed of the UserService, ResetService, and UserErrService interfaces.
+type service struct {
+	UserService
+	ResetService
+	UserErrService
+}
 
 // PasswordHistory is a model struct that represents a password history record in the password_history table.
 type PasswordHistory struct {

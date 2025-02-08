@@ -10,41 +10,45 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/profile"
-	"github.com/tdeslauriers/carapace/pkg/session/provider"
 )
 
 // Service is the interface for the user service functionality like retrieving user data by username from the db.
-type Service interface {
-	UserService
-	ProfileService
-	UserErrService
+type UserService interface {
+
+	// GetProfile retrieves user data by username from the database.
+	// Note: this will not return the user's scopes
+	GetProfile(username string) (*Profile, error)
+
+	// GetUsers retrieves all user data from the database.
+	GetUsers() ([]Profile, error)
+
+	// GetUser retrieves user data (including user's scopes) by username from the database.
+	GetUser(username string) (*profile.User, error)
+
+	// Update updates the user data in the database.
+	Update(user *Profile) error
+
+	// IsActive checks if the user is active.
+	IsActive(u *Profile) (bool, error)
 }
 
-var _ Service = (*service)(nil)
-
-type service struct {
-	UserService
-	ProfileService
-	UserErrService
-}
-
-func NewService(db data.SqlRepository, i data.Indexer, c data.Cryptor, p provider.S2sTokenProvider, call connect.S2sCaller) Service {
+// NewUserService creates a new UserService interface by returning a pointer to a new concrete implementation
+func NewUserService(db data.SqlRepository, i data.Indexer, c data.Cryptor, s scope.ScopesService) UserService {
 	return &userService{
 		db:     db,
 		index:  i,
 		crypt:  c,
-		scopes: scope.NewScopesService(db, i, p, call),
+		scopes: s,
 
-		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentUser)),
+		logger: slog.Default().
+			With(slog.String(util.ComponentKey, util.ComponentUser)).
+			With(slog.String(util.ServiceKey, util.ServiceName)),
 	}
 }
 
-var _ Service = (*userService)(nil)
-
-// userService is the concrete implementation of the user Service interface.
+// userService is the concrete implementation of the UserService interface.
 type userService struct {
 	db     data.SqlRepository
 	index  data.Indexer
@@ -54,20 +58,9 @@ type userService struct {
 	logger *slog.Logger
 }
 
-// Service is the interface for the user service functionality like retrieving user data by username from the db.
-type UserService interface {
-
-	// GetUsers retrieves all user data from the database.
-	GetUsers() ([]Profile, error)
-
-	// GetUser retrieves user data by username from the database.
-	GetUser(username string) (*profile.User, error)
-
-	// Update updates the user data in the database.
-	Update(user *Profile) error
-
-	// IsActive checks if the user is active.
-	IsActive(u *Profile) (bool, error)
+// GetProfile is the concrete implementation of the method which retrieves a user's profile data by username from the database.
+func (s *userService) GetProfile(username string) (*Profile, error) {
+	return s.getByUsername(username)
 }
 
 // GetUsers retrieves all user data from the database.
@@ -133,7 +126,7 @@ func (s *userService) GetUsers() ([]Profile, error) {
 
 }
 
-// GetUser retrieves user data by username from the database.
+// GetUser retrieves user data (including user's sscopes) by username from the database.
 func (s *userService) GetUser(username string) (*profile.User, error) {
 
 	// get profile data

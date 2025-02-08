@@ -3,31 +3,49 @@ package user
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
+	"shaw/internal/util"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/profile"
 	"github.com/tdeslauriers/carapace/pkg/validate"
 	"golang.org/x/crypto/bcrypt"
 )
 
-type ProfileService interface {
-
-	// GetProfile retrieves a user's data by from the database.
-	GetProfile(username string) (*Profile, error)
+// ResetService is the interface for the reset service functionality like updating the users password in the database.
+type ResetService interface {
 
 	// ResetPassword updates the users password in the database.
 	// Note: this will check if the user exists, is valid, and if the current password is correct
 	ResetPassword(username string, cmd profile.ResetCmd) error
 }
 
-// GetProfile is the concrete implementation of the method which retrieves a user's data by from the database.
-func (s *userService) GetProfile(username string) (*Profile, error) {
-	return s.getByUsername(username)
+// NewResetService creates a new ResetService interface by returning a pointer to a new concrete implementation
+func NewResetService(db data.SqlRepository, i data.Indexer) ResetService {
+	return &resetService{
+		db:    db,
+		index: i,
+
+		logger: slog.Default().
+			With(slog.String(util.ComponentKey, util.ComponentReset)).
+			With(slog.String(util.ServiceKey, util.ServiceName)),
+	}
+}
+
+var _ ResetService = (*resetService)(nil)
+
+// resetService is the concrete implementation of the ResetService interface.
+type resetService struct {
+	db    data.SqlRepository
+	index data.Indexer
+
+	logger *slog.Logger
 }
 
 // ResetPassword is the concrete implementation of the method which updates the users password in the database.
-func (s *userService) ResetPassword(username string, cmd profile.ResetCmd) error {
+func (s *resetService) ResetPassword(username string, cmd profile.ResetCmd) error {
 
 	// lightweight input validation of username
 	if len(username) < validate.EmailMin || len(username) > validate.EmailMax {

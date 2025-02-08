@@ -46,7 +46,7 @@ type resetHandler struct {
 // HandleReset is a concrete implementation which handles the reset request from users where the user knows their current password
 func (h *resetHandler) HandleReset(w http.ResponseWriter, r *http.Request) {
 
-	if r.Method != "POST" {
+	if r.Method != http.MethodPost {
 		h.logger.Error("only POST http method allowed")
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusMethodNotAllowed,
