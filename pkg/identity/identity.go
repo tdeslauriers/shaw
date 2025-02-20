@@ -197,6 +197,7 @@ func (i *identity) Run() error {
 	mux.HandleFunc("/profile", userHandler.HandleProfile)
 	mux.HandleFunc("/reset", userHandler.HandleReset)
 	mux.HandleFunc("/users", userHandler.HandleUsers)
+	mux.HandleFunc("/users/", userHandler.HandleUser)
 
 	identityServer := &connect.TlsServer{
 		Addr:      i.config.ServicePort,

@@ -24,8 +24,8 @@ type UserService interface {
 	// GetUsers retrieves all user data from the database.
 	GetUsers() ([]Profile, error)
 
-	// GetUser retrieves user data (including user's scopes) by username from the database.
-	GetUser(username string) (*profile.User, error)
+	// GetUser retrieves user data (including user's scopes) by slug from the database.
+	GetUser(slug string) (*profile.User, error)
 
 	// Update updates the user data in the database.
 	Update(user *Profile) error
@@ -126,33 +126,33 @@ func (s *userService) GetUsers() ([]Profile, error) {
 
 }
 
-// GetUser retrieves user data (including user's sscopes) by username from the database.
-func (s *userService) GetUser(username string) (*profile.User, error) {
+// GetUser retrieves user data (including user's scopes) by slug from the database.
+func (s *userService) GetUser(slug string) (*profile.User, error) {
 
 	// get profile data
-	usr, err := s.getByUsername(username)
+	u, err := s.getBySlug(slug)
 	if err != nil {
-
 		return nil, err
 	}
 
 	// get scopes
 	// service left empty for now because not service specific
-	scopes, err := s.scopes.GetUserScopes(username, "")
+	scopes, err := s.scopes.GetUserScopes(u.Username, "")
 	if err != nil {
 		return nil, err
 	}
 
 	return &profile.User{
-		Username:       usr.Username,
-		Firstname:      usr.Firstname,
-		Lastname:       usr.Lastname,
-		BirthDate:      usr.BirthDate,
-		Slug:           usr.Slug,
-		CreatedAt:      usr.CreatedAt,
-		Enabled:        usr.Enabled,
-		AccountLocked:  usr.AccountLocked,
-		AccountExpired: usr.AccountExpired,
+		Id:             u.Id,
+		Username:       u.Username,
+		Firstname:      u.Firstname,
+		Lastname:       u.Lastname,
+		BirthDate:      u.BirthDate,
+		Slug:           u.Slug,
+		CreatedAt:      u.CreatedAt,
+		Enabled:        u.Enabled,
+		AccountLocked:  u.AccountLocked,
+		AccountExpired: u.AccountExpired,
 		Scopes:         scopes,
 	}, nil
 }
@@ -187,9 +187,51 @@ func (s *userService) getByUsername(username string) (*Profile, error) {
 	var user Profile
 	if err := s.db.SelectRecord(qry, &user, index); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, errors.New(ErrUserNotFound)
+			return nil, fmt.Errorf("%s in db for username: %s", ErrUserNotFound, username)
 		}
 		return nil, fmt.Errorf("failed to retrieve user %s data: %v", username, err)
+	}
+
+	if err := s.decryptProfile(&user); err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
+func (s *userService) getBySlug(slug string) (*Profile, error) {
+
+	// lightweight validatino of slug
+	if len(slug) < 16 || len(slug) > 64 {
+		return nil, errors.New("invalid user slug")
+	}
+
+	// obtain slug index
+	slugIndex, err := s.index.ObtainBlindIndex(slug)
+	if err != nil {
+		return nil, err
+	}
+
+	// retrieve user record
+	qry := `SELECT 
+				uuid, 
+				username, 
+				firstname, 
+				lastname,
+				birth_date,
+				slug,
+				created_at, 
+				enabled,
+				account_expired,
+				account_locked 
+			FROM account 
+			WHERE slug_index = ?`
+	var user Profile
+	if err := s.db.SelectRecord(qry, &user, slugIndex); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("%s in db for slug: %s", ErrUserNotFound, slug)
+		}
+		return nil, fmt.Errorf("failed to retrieve user slug %s data: %v", slug, err)
 	}
 
 	if err := s.decryptProfile(&user); err != nil {
