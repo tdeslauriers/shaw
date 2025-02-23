@@ -182,7 +182,7 @@ func (i *identity) Run() error {
 
 	refreshHandler := refresh.NewHandler(i.authService, i.s2sVerifier, i.userService)
 
-	userHandler := user.NewHandler(i.userService, i.s2sVerifier, i.iamVerifier)
+	userHandler := user.NewHandler(i.userService,  i.s2sVerifier, i.iamVerifier)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", diagnostics.HealthCheckHandler)
@@ -198,6 +198,7 @@ func (i *identity) Run() error {
 	mux.HandleFunc("/reset", userHandler.HandleReset)
 	mux.HandleFunc("/users", userHandler.HandleUsers)
 	mux.HandleFunc("/users/", userHandler.HandleUser)
+	mux.HandleFunc("/users/scopes", userHandler.HandleScopes)
 
 	identityServer := &connect.TlsServer{
 		Addr:      i.config.ServicePort,

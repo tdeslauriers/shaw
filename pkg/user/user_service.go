@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
+
 	"log/slog"
 	"shaw/internal/util"
 	"shaw/pkg/scope"
@@ -12,23 +14,28 @@ import (
 
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/profile"
+	"github.com/tdeslauriers/carapace/pkg/session/types"
+	"github.com/tdeslauriers/carapace/pkg/validate"
 )
 
 // Service is the interface for the user service functionality like retrieving user data by username from the db.
 type UserService interface {
 
-	// GetProfile retrieves user data by username from the database.
+	// GetProfile retrieves user data by username from peristence.
 	// Note: this will not return the user's scopes
 	GetProfile(username string) (*Profile, error)
 
-	// GetUsers retrieves all user data from the database.
+	// GetUsers retrieves all user data from persistence.
 	GetUsers() ([]Profile, error)
 
-	// GetUser retrieves user data (including user's scopes) by slug from the database.
+	// GetUser retrieves user data (including user's scopes) by slug from persistence.
 	GetUser(slug string) (*profile.User, error)
 
-	// Update updates the user data in the database.
+	// Update updates the user data in in persistence.
 	Update(user *Profile) error
+
+	// UpdateScopes updates the user's scopes assigned scopes given a command of scope slugs.
+	UpdateScopes(user *profile.User, cmd []string) error
 
 	// IsActive checks if the user is active.
 	IsActive(u *Profile) (bool, error)
@@ -314,6 +321,160 @@ func (s *userService) Update(user *Profile) error {
 			WHERE user_index = ?`
 	if err := s.db.UpdateRecord(qry, encFirstname, encLastname, encBirthDate, user.Enabled, user.AccountLocked, user.AccountExpired, index); err != nil {
 		return fmt.Errorf("failed to update user %s data: %v", user.Username, err)
+	}
+
+	return nil
+}
+
+// UpdateScopes is a concrete implementation of the interface method which updates the
+// user's assigned scopes given a command of scope slugs.
+func (s *userService) UpdateScopes(user *profile.User, cmd []string) error {
+
+	// validate the cmd scopes
+	for _, slug := range cmd {
+		if !validate.IsValidUuid(slug) {
+			return fmt.Errorf("%s: %s", ErrInvalidScopeSlug, slug)
+		}
+	}
+
+	// call scopes service to get all scopes.
+	allScopes, err := s.scopes.GetAll()
+	if err != nil {
+		return fmt.Errorf("failed to update scopes: %v", err)
+	}
+
+	// validate that all scopes slugs submitted are valid scopes
+	// and build updated list of scopes from cmd slugs
+	// so uuids can be used for db xref records
+	updated := make([]types.Scope, 0, len(cmd))
+	if len(cmd) > 0 {
+		for _, slug := range cmd {
+			var exists bool
+			for _, scope := range allScopes {
+				if slug == scope.Slug {
+					exists = true
+					updated = append(updated, scope)
+					break
+				}
+			}
+			if !exists {
+				return fmt.Errorf("%s: %s", ErrScopeSlugDoesNotExist, slug)
+			}
+		}
+	}
+
+	// identify the user's scopes to revome, if any
+	var (
+		toRemove  = make(map[string]bool)
+		isRemoved bool
+	)
+
+	for _, scope := range user.Scopes {
+		isRemoved = true
+		// if cmd is empty, remove all scopes
+		for _, s := range updated {
+			if scope.Slug == s.Slug {
+				isRemoved = false
+				break
+			}
+		}
+		if isRemoved {
+			toRemove[scope.Uuid] = true
+		}
+	}
+
+	// identify the scopes to add, if any
+	var (
+		toAdd   = make(map[string]bool)
+		isAdded bool
+	)
+
+	for _, scope := range updated {
+		isAdded = true
+		// if user has no scopes, add all
+		for _, s := range user.Scopes {
+			if scope.Slug == s.Slug {
+				isAdded = false
+				break
+			}
+		}
+		if isAdded {
+			toAdd[scope.Uuid] = true
+		}
+	}
+
+	// update user's scopes if necessary
+	if len(toRemove) > 0 || len(toAdd) > 0 {
+
+		var (
+			wg      sync.WaitGroup
+			errChan = make(chan error, len(toRemove)+len(toAdd))
+		)
+
+		// remove user's scopes
+		if len(toRemove) > 0 {
+			for uuid := range toRemove {
+				wg.Add(1)
+				go func(id string, ch chan error, wg *sync.WaitGroup) {
+					defer wg.Done()
+
+					query := `
+						DELETE 
+						FROM account_scope 
+						WHERE account_uuid = ? AND scope_uuid = ?`
+					if err := s.db.DeleteRecord(query, user.Id, id); err != nil {
+						ch <- fmt.Errorf("failed to remove scope %s from user %s: %v", id, user.Username, err)
+					}
+
+					s.logger.Info(fmt.Sprintf("removed scope %s from user %s", id, user.Username))
+				}(uuid, errChan, &wg)
+			}
+		}
+
+		// add user's scopes
+		if len(toAdd) > 0 {
+			for uuid := range toAdd {
+				wg.Add(1)
+				go func(id string, ch chan error, wg *sync.WaitGroup) {
+					defer wg.Done()
+
+					xref := AccountScopeXref{
+						AccountId: user.Id,
+						ScopeId:   id,
+						CreatedAt: data.CustomTime{Time: time.Now().UTC()},
+					}
+
+					query := `
+						INSERT 
+						INTO account_scope (account_uuid, scope_uuid, created_at)
+						VALUES (?, ?, ?)`
+					if err := s.db.InsertRecord(query, xref); err != nil {
+						ch <- fmt.Errorf("failed to add scope %s to user %s: %v", id, user.Username, err)
+					}
+
+					s.logger.Info(fmt.Sprintf("added scope %s to user %s", id, user.Username))
+				}(uuid, errChan, &wg)
+			}
+		}
+
+		// wait for all updates to complete
+		wg.Wait()
+		close(errChan)
+
+		// check for errors
+		errCount := len(errChan)
+		if errCount > 0 {
+			var sb strings.Builder
+			counter := 0
+			for err := range errChan {
+				sb.WriteString(fmt.Sprintf("%d. %v\n", counter, err))
+				if counter < errCount-1 {
+					sb.WriteString("; ")
+				}
+				counter++
+			}
+			return fmt.Errorf("failed to update user scopes: %s", sb.String())
+		}
 	}
 
 	return nil

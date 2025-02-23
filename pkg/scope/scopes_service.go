@@ -18,6 +18,9 @@ import (
 // ScopesService is the interface for the scopes service functionality like retrieving user scopes by username from the db.
 type ScopesService interface {
 
+	// GetAll returns all scopes from the s2s service.
+	GetAll() ([]types.Scope, error)
+
 	// GetScopes gets scopes specific to a service for a given username.
 	GetUserScopes(user, service string) ([]types.Scope, error)
 }
@@ -44,11 +47,28 @@ type scopesService struct {
 	logger *slog.Logger
 }
 
+// GetAll gets all scopes from the s2s service.
+func (s *scopesService) GetAll() ([]types.Scope, error) {
+	// get s2s service endpoint token to retreive scopes
+	s2stoken, err := s.s2sTokenProvider.GetServiceToken(util.ServiceNameS2s)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get s2s token: %v", err.Error())
+	}
+
+	// call scopes endpoint
+	var all []types.Scope
+	if err := s.s2sCaller.GetServiceData("/service/scopes", s2stoken, "", &all); err != nil {
+		return nil, fmt.Errorf("failed to get all scopes data from s2s scopes endpoint: %s", err.Error())
+	}
+
+	return all, nil
+}
+
 // GetScopes is the concrete implementation of ScopesServices's GetScopes method and gets the user scopes for username.
 // Note: service param is not used in this implementation because a user's scopes are not service specific (yet).
 func (s *scopesService) GetUserScopes(username, service string) ([]types.Scope, error) {
 
-	// get user's allScopes and all allScopes
+	// get user's scopes and all allScopes
 	var (
 		wg         sync.WaitGroup
 		userScopes []AccountScope
@@ -121,24 +141,15 @@ func (s *scopesService) lookupUserScopes(username string, wg *sync.WaitGroup, ac
 	*acctScopes = scopes
 }
 
-// getAllScopes gets scopes data objects/records from s2s scopes endpoint
+// getAllScopes is a helper function for using GetAll() concurrently.
 func (s *scopesService) getAllScopes(wg *sync.WaitGroup, scopes *[]types.Scope) {
 
 	defer wg.Done()
 
-	// get s2s service endpoint token to retreive scopes
-	s2stoken, err := s.s2sTokenProvider.GetServiceToken(util.ServiceNameS2s)
+	all, err := s.GetAll()
 	if err != nil {
-		s.logger.Error("failed to get s2s token: %v", "err", err.Error())
-		return
+		s.logger.Error(err.Error())
 	}
 
-	// call scopes endpoint
-	var s2sScopes []types.Scope
-	if err := s.s2sCaller.GetServiceData("/service/scopes", s2stoken, "", &s2sScopes); err != nil {
-		s.logger.Error("failed to get scopes data from s2s scopes endpoint", "err", err.Error())
-		return
-	}
-
-	*scopes = s2sScopes
+	*scopes = all
 }

@@ -40,6 +40,8 @@ func (s *userErrService) HandleServiceErr(err error, w http.ResponseWriter) {
 	case strings.Contains(err.Error(), ErrInvalidUserData):
 	case strings.Contains(err.Error(), ErrPasswordUsedPreviously):
 	case strings.Contains(err.Error(), ErrNewConfirmPwMismatch):
+	case strings.Contains(err.Error(), ErrInvalidScopeSlug):
+	case strings.Contains(err.Error(), ErrScopeSlugDoesNotExist):
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnprocessableEntity,
 			Message:    err.Error(),

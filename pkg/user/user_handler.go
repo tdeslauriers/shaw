@@ -12,11 +12,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 )
 
-// service scopes required
-var (
-	getUserAllowed    = []string{"r:shaw:user:*"}
-	updateUserAllowed = []string{"w:shaw:user:*"}
-)
+
 
 // UserHandler interface for user request handling from downstream services
 type UserHandler interface {

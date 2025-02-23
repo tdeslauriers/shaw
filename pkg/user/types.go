@@ -24,6 +24,8 @@ const (
 	ErrInvalidUserData        = "invalid or not well formed user data"
 	ErrPasswordUsedPreviously = "password has been used previously"
 	ErrNewConfirmPwMismatch   = "new password and confirmation password do not match"
+	ErrInvalidScopeSlug       = "invalid scope slug submitted"
+	ErrScopeSlugDoesNotExist  = "scope slug does not exist"
 
 	// 500
 	ErrDecryptUsername  = "failed to decrypt username"
@@ -40,16 +42,23 @@ const (
 	ErrGenSlugIndex = "failed to generate slug index"
 )
 
-// service scopes required
+// scopes required to read and write user profile user endpoints
 var (
 	getProfileAllowed    = []string{"r:shaw:profile:*"}
 	updateProfileAllowed = []string{"w:shaw:profile:*"}
+)
+
+// scopes required to read and write user endpoints
+var (
+	getUserAllowed    = []string{"r:shaw:user:*"}
+	updateUserAllowed = []string{"w:shaw:user:*"}
 )
 
 // Handler interface for user profile request handling
 type Handler interface {
 	ProfileHandler
 	ResetHandler
+	ScopesHandler
 	UserHandler
 }
 
@@ -58,6 +67,7 @@ func NewHandler(s Service, s2s jwt.Verifier, iam jwt.Verifier) Handler {
 	return &handler{
 		ProfileHandler: NewProfileHandler(s, s2s, iam),
 		ResetHandler:   NewResetHandler(s, s2s, iam),
+		ScopesHandler:  NewScopesHandler(s, s2s, iam),
 		UserHandler:    NewUserHandler(s, s2s, iam),
 	}
 }
@@ -67,6 +77,7 @@ var _ Handler = (*handler)(nil)
 type handler struct {
 	ProfileHandler
 	ResetHandler
+	ScopesHandler
 	UserHandler
 }
 
@@ -189,4 +200,40 @@ func (u *Profile) ValidateCmd() error {
 	// AccountLocked is a boolean, no validation needed
 
 	return nil
+}
+
+// UserScopesCmd is a model for the user scopes cmd recieved by the user handler
+type UserScopesCmd struct {
+	UserSlug   string   `json:"user_slug" db:"user_slug"`
+	ScopeSlugs []string `json:"scope_slugs" db:"scope_slugs"`
+}
+
+// ValidateCmd validates the UserScopesCmd
+func (cmd *UserScopesCmd) ValidateCmd() error {
+
+	// validate UserSlug
+	if cmd.UserSlug == "" {
+		return fmt.Errorf("user slug is required")
+	}
+
+	if !validate.IsValidUuid(cmd.UserSlug) {
+		return fmt.Errorf("invalid user slug")
+	}
+
+	if len(cmd.ScopeSlugs) > 0 {
+		for _, slug := range cmd.ScopeSlugs {
+			if !validate.IsValidUuid(slug) {
+				return fmt.Errorf("invalid scope slug submitted: all slugs must be valid uuids")
+			}
+		}
+	}
+
+	return nil
+}
+
+// AccountScopeXref is a model struct that represents a record in the account_scope_xref table.
+type AccountScopeXref struct {
+	AccountId string          `json:"account_uuid" db:"account_uuid"`
+	ScopeId   string          `json:"scope_uuid" db:"scope_uuid"`
+	CreatedAt data.CustomTime `json:"created_at" db:"created_at"`
 }

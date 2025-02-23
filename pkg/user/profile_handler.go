@@ -12,8 +12,6 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 )
 
-
-
 // ProfileHandler interface for user profile services
 type ProfileHandler interface {
 	// HandleProfile handles the profile request from users
@@ -27,7 +25,9 @@ func NewProfileHandler(s Service, s2s jwt.Verifier, iam jwt.Verifier) ProfileHan
 		s2sVerifier: s2s,
 		iamVerifier: iam,
 
-		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentUser)),
+		logger: slog.Default().
+			With(slog.String(util.ServiceKey, util.ServiceName)).
+			With(slog.String(util.ComponentKey, util.ComponentProfile)),
 	}
 }
 
