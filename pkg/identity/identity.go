@@ -182,7 +182,8 @@ func (i *identity) Run() error {
 
 	refreshHandler := refresh.NewHandler(i.authService, i.s2sVerifier, i.userService)
 
-	userHandler := user.NewHandler(i.userService,  i.s2sVerifier, i.iamVerifier)
+	s2sUserHandler := user.NewHandler(i.userService, i.s2sVerifier, nil)
+	userHandler := user.NewHandler(i.userService, i.s2sVerifier, i.iamVerifier)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", diagnostics.HealthCheckHandler)
@@ -193,6 +194,10 @@ func (i *identity) Run() error {
 
 	mux.HandleFunc("/refresh", refreshHandler.HandleRefresh)
 	mux.HandleFunc("/refresh/destroy", refreshHandler.HandleDestroy)
+
+	// users endpoints for s2s clients (not user facing)
+	// requires s2s service-call-specific scopes
+	mux.HandleFunc("/s2s/users/", s2sUserHandler.HandleUser)
 
 	mux.HandleFunc("/profile", userHandler.HandleProfile)
 	mux.HandleFunc("/reset", userHandler.HandleReset)

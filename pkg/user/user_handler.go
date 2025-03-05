@@ -12,8 +12,6 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 )
 
-
-
 // UserHandler interface for user request handling from downstream services
 type UserHandler interface {
 
@@ -67,7 +65,6 @@ func (h *userHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// validate iam token
 	accessToken := r.Header.Get("Authorization")
 	if authorized, err := h.iamVerifier.IsAuthorized(getUserAllowed, accessToken); !authorized {
 		h.logger.Error(fmt.Sprintf("/users handler failed to authorize iam token: %s", err.Error()))
@@ -152,20 +149,30 @@ func (h *userHandler) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// determine allowed scopes based on whether iamVerifier is nil --> service endpoint or user endpoint
+	var allowedRead []string
+	if h.iamVerifier == nil {
+		allowedRead = s2sGetUserAllowed
+	} else {
+		allowedRead = getUserAllowed
+	}
+
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
-	if authorized, err := h.s2sVerifier.IsAuthorized(getUserAllowed, svcToken); !authorized {
+	if authorized, err := h.s2sVerifier.IsAuthorized(allowedRead, svcToken); !authorized {
 		h.logger.Error(fmt.Sprintf("/users/%s get-handler failed to authorize service token: %s", slug, err.Error()))
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
 
-	// validate iam token
-	accessToken := r.Header.Get("Authorization")
-	if authorized, err := h.iamVerifier.IsAuthorized(getUserAllowed, accessToken); !authorized {
-		h.logger.Error(fmt.Sprintf("/users/%s get-handler failed to authorize iam token: %s", slug, err.Error()))
-		connect.RespondAuthFailure(connect.User, err, w)
-		return
+	// check if iamVerifier is nil, if not nil, validate user iam token
+	if h.iamVerifier != nil {
+		accessToken := r.Header.Get("Authorization")
+		if authorized, err := h.iamVerifier.IsAuthorized(allowedRead, accessToken); !authorized {
+			h.logger.Error(fmt.Sprintf("/users/%s get-handler failed to authorize iam token: %s", slug, err.Error()))
+			connect.RespondAuthFailure(connect.User, err, w)
+			return
+		}
 	}
 
 	// get user from user service

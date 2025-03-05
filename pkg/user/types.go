@@ -50,6 +50,8 @@ var (
 
 // scopes required to read and write user endpoints
 var (
+	s2sGetUserAllowed = []string{"r:shaw:s2s:user:*"}
+
 	getUserAllowed    = []string{"r:shaw:user:*"}
 	updateUserAllowed = []string{"w:shaw:user:*"}
 )
