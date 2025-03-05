@@ -57,7 +57,7 @@ func (s *scopesService) GetAll() ([]types.Scope, error) {
 
 	// call scopes endpoint
 	var all []types.Scope
-	if err := s.s2sCaller.GetServiceData("/service/scopes", s2stoken, "", &all); err != nil {
+	if err := s.s2sCaller.GetServiceData("/s2s/scopes", s2stoken, "", &all); err != nil {
 		return nil, fmt.Errorf("failed to get all scopes data from s2s scopes endpoint: %s", err.Error())
 	}
 

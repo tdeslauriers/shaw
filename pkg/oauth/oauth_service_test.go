@@ -347,18 +347,18 @@ func (dao *mockSqlRepository) Close() error                                     
 
 type mockCryptor struct{}
 
-func (c *mockCryptor) EncryptServiceData(plaintext string) (string, error) {
-	if plaintext == "failed-encryption" {
+func (c *mockCryptor) EncryptServiceData(plaintext []byte) (string, error) {
+	if string(plaintext) == "failed-encryption" {
 		return "", errors.New("failed to encrypt client id:")
 	}
 	return fmt.Sprintf("encrypted-%s", plaintext), nil
 }
 
-func (c *mockCryptor) DecryptServiceData(ciphertext string) (string, error) {
+func (c *mockCryptor) DecryptServiceData(ciphertext string) ([]byte, error) {
 	if strings.Contains(ciphertext, "failed-") {
-		return "", errors.New("failed to decrypt")
+		return nil, errors.New("failed to decrypt")
 	}
-	return strings.ReplaceAll(ciphertext, "encrypted-", ""), nil
+	return []byte(strings.ReplaceAll(ciphertext, "encrypted-", "")), nil
 }
 
 // mock Indexer

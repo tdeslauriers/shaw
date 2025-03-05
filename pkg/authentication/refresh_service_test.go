@@ -258,20 +258,20 @@ func (idx *mockRefreshIndexer) ObtainBlindIndex(input string) (string, error) {
 
 type mockRefreshCryptor struct{}
 
-func (c *mockRefreshCryptor) EncryptServiceData(data string) (string, error) {
-	if data == "failed to encrypt" {
+func (c *mockRefreshCryptor) EncryptServiceData(data []byte) (string, error) {
+	if string(data) == "failed to encrypt" {
 		return "", errors.New("failed to encrypt")
 	}
 
-	return "encrypted+" + data, nil
+	return "encrypted+" + string(data), nil
 }
 
-func (c *mockRefreshCryptor) DecryptServiceData(data string) (string, error) {
+func (c *mockRefreshCryptor) DecryptServiceData(data string) ([]byte, error) {
 	if data == "failed-to-decrypt" {
-		return "", errors.New("failed to decrypt")
+		return nil, errors.New("failed to decrypt")
 	}
 
-	return strings.TrimPrefix(data, "encrypted-"), nil
+	return []byte(strings.TrimPrefix(data, "encrypted-")), nil
 }
 
 type mockRefreshSqlRepository struct{}

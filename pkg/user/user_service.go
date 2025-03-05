@@ -284,12 +284,12 @@ func (s *userService) Update(user *Profile) error {
 
 	// encrypt user data for persistence
 	wg.Add(2)
-	go s.encrypt(user.Firstname, ErrEncryptFirstname, &encFirstname, errChan, &wg)
-	go s.encrypt(user.Lastname, ErrEncryptLastname, &encLastname, errChan, &wg)
+	go s.encrypt([]byte(user.Firstname), ErrEncryptFirstname, &encFirstname, errChan, &wg)
+	go s.encrypt([]byte(user.Lastname), ErrEncryptLastname, &encLastname, errChan, &wg)
 
 	if user.BirthDate != "" {
 		wg.Add(1)
-		go s.encrypt(user.BirthDate, ErrEncryptBirthDate, &encBirthDate, errChan, &wg)
+		go s.encrypt([]byte(user.BirthDate), ErrEncryptBirthDate, &encBirthDate, errChan, &wg)
 	}
 
 	wg.Wait()
@@ -505,11 +505,11 @@ func (s *userService) decryptProfile(user *Profile) error {
 		wg      sync.WaitGroup
 		errChan = make(chan error, 5)
 
-		decryptedUsername  string
-		decryptedFirstname string
-		decryptedLastname  string
-		decryptedBirthDate string
-		decryptedSlug      string
+		decryptedUsername  []byte
+		decryptedFirstname []byte
+		decryptedLastname  []byte
+		decryptedBirthDate []byte
+		decryptedSlug      []byte
 	)
 
 	// decrypt user data
@@ -544,17 +544,17 @@ func (s *userService) decryptProfile(user *Profile) error {
 	}
 
 	// update user data with decrypted values
-	user.Username = decryptedUsername
-	user.Firstname = decryptedFirstname
-	user.Lastname = decryptedLastname
-	user.BirthDate = decryptedBirthDate
-	user.Slug = decryptedSlug
+	user.Username = string(decryptedUsername)
+	user.Firstname = string(decryptedFirstname)
+	user.Lastname = string(decryptedLastname)
+	user.BirthDate = string(decryptedBirthDate)
+	user.Slug = string(decryptedSlug)
 
 	return nil
 }
 
 // decrypt is a helper method that abstracts away the decryption process for encrypted strings.
-func (s *userService) decrypt(encrypted, errMsg string, plaintext *string, ch chan error, wg *sync.WaitGroup) {
+func (s *userService) decrypt(encrypted, errMsg string, clear *[]byte, ch chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	decrypted, err := s.crypt.DecryptServiceData(encrypted)
@@ -563,14 +563,14 @@ func (s *userService) decrypt(encrypted, errMsg string, plaintext *string, ch ch
 		return
 	}
 
-	*plaintext = decrypted
+	*clear = decrypted
 }
 
 // encrypt is a helper function that abstracts the service encryption process for plaintext strings.
-func (s *userService) encrypt(plaintext, errMsg string, encrypted *string, ch chan error, wg *sync.WaitGroup) {
+func (s *userService) encrypt(clear []byte, errMsg string, encrypted *string, ch chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	ciphertext, err := s.crypt.EncryptServiceData(plaintext)
+	ciphertext, err := s.crypt.EncryptServiceData(clear)
 	if err != nil {
 		ch <- fmt.Errorf("%s: %v", errMsg, err)
 		return

@@ -279,20 +279,20 @@ func (idx *mockAuthIndexer) ObtainBlindIndex(input string) (string, error) {
 
 type mockCryptor struct{}
 
-func (c *mockCryptor) EncryptServiceData(data string) (string, error) {
-	if data == "failed to encrypt" {
+func (c *mockCryptor) EncryptServiceData(data []byte) (string, error) {
+	if string(data) == "failed to encrypt" {
 		return "", errors.New("failed to encrypt")
 	}
 
-	return "encrypted+" + data, nil
+	return "encrypted+" + string(data), nil
 }
 
-func (c *mockCryptor) DecryptServiceData(data string) (string, error) {
+func (c *mockCryptor) DecryptServiceData(data string) ([]byte, error) {
 	if data == "failed to decrypt" {
-		return "", errors.New("failed to decrypt")
+		return nil, errors.New("failed to decrypt")
 	}
 
-	return strings.TrimPrefix(data, "encrypted-"), nil
+	return []byte(strings.TrimPrefix(data, "encrypted-")), nil
 }
 
 type mockAuthSqlRepository struct{}

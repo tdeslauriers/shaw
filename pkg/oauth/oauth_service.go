@@ -278,7 +278,7 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 		}
 		*authCodeIndex = index
 
-		encrypted, err := s.cryptor.EncryptServiceData(authCode.String())
+		encrypted, err := s.cryptor.EncryptServiceData([]byte(authCode.String()))
 		if err != nil {
 			errs <- fmt.Errorf("failed to encrypt auth code: %v", err)
 			return
@@ -291,7 +291,7 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 	go func(nonce string, encryptedNonce *string, errs chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
-		encrypted, err := s.cryptor.EncryptServiceData(nonce)
+		encrypted, err := s.cryptor.EncryptServiceData([]byte(nonce))
 		if err != nil {
 			errs <- fmt.Errorf("failed to encrypt nonce: %v", err)
 			return
@@ -304,7 +304,7 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 	go func(clientId string, encryptedClientId *string, errs chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
-		encrypted, err := s.cryptor.EncryptServiceData(clientId)
+		encrypted, err := s.cryptor.EncryptServiceData([]byte(clientId))
 		if err != nil {
 			errs <- fmt.Errorf("failed to encrypt client id: %v", err)
 			return
@@ -317,7 +317,7 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 	go func(redirect string, encryptedRedirect *string, errs chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
-		encrypted, err := s.cryptor.EncryptServiceData(redirect)
+		encrypted, err := s.cryptor.EncryptServiceData([]byte(redirect))
 		if err != nil {
 			errs <- fmt.Errorf("failed to encrypt redirect url: %v", err)
 			return
@@ -339,7 +339,7 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 			}
 		}
 
-		encrypted, err := s.cryptor.EncryptServiceData(builder.String())
+		encrypted, err := s.cryptor.EncryptServiceData([]byte(builder.String()))
 		if err != nil {
 			errs <- fmt.Errorf("failed to encrypt generaed scopes string: %v", err)
 			return
@@ -491,15 +491,15 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 	var (
 		wg sync.WaitGroup
 
-		decryptedUsername    string
-		decryptedFirstname   string
-		decryptedLastname    string
-		decryptedBirthdate   string
-		decryptedAuthcode    string
-		decryptedNonce       string
-		decryptedClientId    string
-		decryptedRedirectUrl string
-		decryptedScopes      string
+		decryptedUsername    []byte
+		decryptedFirstname   []byte
+		decryptedLastname    []byte
+		decryptedBirthdate   []byte
+		decryptedAuthcode    []byte
+		decryptedNonce       []byte
+		decryptedClientId    []byte
+		decryptedRedirectUrl []byte
+		decryptedScopes      []byte
 
 		errChan = make(chan error, 9)
 	)
@@ -553,35 +553,35 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 
 	// validate cmd data against decrypted data
 	// authcode mismatch should not happen since auth code generates the lookup index
-	if cmd.AuthCode != decryptedAuthcode {
+	if cmd.AuthCode != string(decryptedAuthcode) {
 		return nil, fmt.Errorf("%s for auth code (xxxxxx-%s)", ErrMismatchAuthcode, cmd.AuthCode[len(cmd.AuthCode)-6:])
 	}
 
 	// check client id submitted matches decrypted client id
-	if cmd.ClientId != decryptedClientId {
+	if cmd.ClientId != string(decryptedClientId) {
 		return nil, fmt.Errorf("%s for auth code (xxxxxx-%s)", ErrMismatchClientid, cmd.AuthCode[len(cmd.AuthCode)-6:])
 	}
 
 	// check redirect url submitted matches decrypted redirect url
-	if cmd.RedirectUrl != decryptedRedirectUrl {
+	if cmd.RedirectUrl != string(decryptedRedirectUrl) {
 		return nil, fmt.Errorf("%s for auth code (xxxxxx-%s)", ErrMismatchRedirect, cmd.AuthCode[len(cmd.AuthCode)-6:])
 	}
 
 	// build and return user data
 	return &OauthUserData{
-		Username:       decryptedUsername,
-		Firstname:      decryptedFirstname,
-		Lastname:       decryptedLastname,
-		BirthDate:      decryptedBirthdate,
+		Username:       string(decryptedUsername),
+		Firstname:      string(decryptedFirstname),
+		Lastname:       string(decryptedLastname),
+		BirthDate:      string(decryptedBirthdate),
 		Enabled:        user.Enabled,
 		AccountExpired: user.AccountExpired,
 		AccountLocked:  user.AccountLocked,
 
-		Authcode:          decryptedAuthcode,
-		Nonce:             decryptedNonce,
-		ClientId:          decryptedClientId,
-		RedirectUrl:       decryptedRedirectUrl,
-		Scopes:            decryptedScopes,
+		Authcode:          string(decryptedAuthcode),
+		Nonce:             string(decryptedNonce),
+		ClientId:          string(decryptedClientId),
+		RedirectUrl:       string(decryptedRedirectUrl),
+		Scopes:            string(decryptedScopes),
 		AuthcodeCreatedAt: user.AuthcodeCreatedAt,
 		AuthcodeClaimed:   user.AuthcodeClaimed,
 		AuthcodeRevoked:   user.AuthcodeRevoked,
@@ -589,7 +589,7 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 }
 
 // decrypt is a helper function to absract the decryption process for the user data fields
-func (s *service) decrypt(encrypted, errMsg string, plaintext *string, ch chan error, wg *sync.WaitGroup) {
+func (s *service) decrypt(encrypted, errMsg string, clear *[]byte, ch chan error, wg *sync.WaitGroup) {
 
 	defer wg.Done()
 
@@ -599,7 +599,7 @@ func (s *service) decrypt(encrypted, errMsg string, plaintext *string, ch chan e
 		return
 	}
 
-	*plaintext = decrypted
+	*clear = decrypted
 }
 
 func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {

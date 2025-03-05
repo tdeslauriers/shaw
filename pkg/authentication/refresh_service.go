@@ -69,10 +69,10 @@ func (r *refresh) GetRefreshToken(refreshToken string) (*types.UserRefresh, erro
 		wg      sync.WaitGroup
 		errChan = make(chan error, 3)
 
-		decryptedRefresh  string
-		decryptedClientId string
-		decryptedUsername string
-		decryptedScopes   string
+		decryptedRefresh  []byte
+		decryptedClientId []byte
+		decryptedUsername []byte
+		decryptedScopes   []byte
 	)
 
 	wg.Add(4)
@@ -102,27 +102,27 @@ func (r *refresh) GetRefreshToken(refreshToken string) (*types.UserRefresh, erro
 	return &types.UserRefresh{
 		Uuid:          refresh.Uuid,
 		RefreshIndex:  refresh.RefreshIndex,
-		ClientId:      decryptedClientId,
-		RefreshToken:  decryptedRefresh,
-		Username:      decryptedUsername,
+		ClientId:      string(decryptedClientId),
+		RefreshToken:  string(decryptedRefresh),
+		Username:      string(decryptedUsername),
 		UsernameIndex: refresh.UsernameIndex,
-		Scopes:        decryptedScopes,
+		Scopes:        string(decryptedScopes),
 		CreatedAt:     refresh.CreatedAt,
 		Revoked:       refresh.Revoked,
 	}, nil
 }
 
 // decrypt is a helper function that abstracts the service decryption process for encrypted strings.
-func (r *refresh) decrypt(encrypted, errMsg string, decrypted *string, ch chan error, wg *sync.WaitGroup) {
+func (r *refresh) decrypt(encrypted, errMsg string, decrypted *[]byte, ch chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	plaintext, err := r.cryptor.DecryptServiceData(encrypted)
+	clear, err := r.cryptor.DecryptServiceData(encrypted)
 	if err != nil {
 		ch <- fmt.Errorf("%s: %v", errMsg, err)
 		return
 	}
 
-	*decrypted = plaintext
+	*decrypted = clear
 }
 
 // PersistRefresh persists the refresh token for user authentication service.
@@ -207,7 +207,7 @@ func (r *refresh) PersistRefresh(ur types.UserRefresh) error {
 func (r *refresh) encrypt(plaintext, errMsg string, encrypted *string, ch chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	enc, err := r.cryptor.EncryptServiceData(plaintext)
+	enc, err := r.cryptor.EncryptServiceData([]byte(plaintext))
 	if err != nil {
 		ch <- fmt.Errorf("%s: %v", errMsg, err)
 		return

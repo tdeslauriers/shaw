@@ -534,15 +534,15 @@ func (m *mockUserIndexer) ObtainBlindIndex(input string) (string, error) {
 type mockUserCryptor struct{}
 
 // mock cryptor
-func (m *mockUserCryptor) EncryptServiceData(data string) (string, error) {
-	return "encrypted-" + data, nil
+func (m *mockUserCryptor) EncryptServiceData(data []byte) (string, error) {
+	return "encrypted-" + string(data), nil
 }
 
-func (m *mockUserCryptor) DecryptServiceData(data string) (string, error) {
+func (m *mockUserCryptor) DecryptServiceData(data string) ([]byte, error) {
 	if strings.Contains(data, "failed-to-decrypt-username") {
-		return "", errors.New(ErrDecryptFirstname)
+		return nil, errors.New(ErrDecryptFirstname)
 	}
-	return data[10:] + data, nil
+	return []byte(data[10:] + data), nil
 }
 
 type mockS2sTokenProvider struct{}

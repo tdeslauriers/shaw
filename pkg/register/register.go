@@ -214,7 +214,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 			ch <- errors.New(msg)
 		}
 
-		encrypted, err := s.cipher.EncryptServiceData(sg.String())
+		encrypted, err := s.cipher.EncryptServiceData([]byte(sg.String()))
 		if err != nil {
 			msg := fmt.Sprintf("%s user slug for username/email %s: %v", FieldLevelEncryptErrMsg, cmd.Username, err)
 			s.logger.Error(msg, "err", err.Error())
@@ -230,7 +230,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 	go func(user *string, ch chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
-		encrypted, err := s.cipher.EncryptServiceData(cmd.Username)
+		encrypted, err := s.cipher.EncryptServiceData([]byte(cmd.Username))
 		if err != nil {
 			msg := fmt.Sprintf("%s username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			s.logger.Error(msg, "err", err.Error())
@@ -260,7 +260,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 	go func(first *string, ch chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
-		encrypted, err := s.cipher.EncryptServiceData(cmd.Firstname)
+		encrypted, err := s.cipher.EncryptServiceData([]byte(cmd.Firstname))
 		if err != nil {
 			msg := fmt.Sprintf("%s first name for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			s.logger.Error(msg, "err", err.Error())
@@ -275,7 +275,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 	go func(last *string, ch chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
-		encrypted, err := s.cipher.EncryptServiceData(cmd.Lastname)
+		encrypted, err := s.cipher.EncryptServiceData([]byte(cmd.Lastname))
 		if err != nil {
 			msg := fmt.Sprintf("%s lastname for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			s.logger.Error(msg, "err", err.Error())
@@ -290,7 +290,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 	go func(dob *string, ch chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
-		encrypted, err := s.cipher.EncryptServiceData(cmd.Birthdate)
+		encrypted, err := s.cipher.EncryptServiceData([]byte(cmd.Birthdate))
 		if err != nil {
 			msg := fmt.Sprintf("%s dob for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			s.logger.Error(msg, "err", err.Error())
@@ -409,7 +409,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 
 	// call scopes endpoint
 	var scopes []types.Scope
-	if err := s.s2sCaller.GetServiceData("/service/scopes", s2stoken, "", &scopes); err != nil {
+	if err := s.s2sCaller.GetServiceData("/s2s/scopes", s2stoken, "", &scopes); err != nil {
 		s.logger.Error("failed to get scopes data", "err", err.Error())
 		return errors.New(BuildUserErrMsg)
 	}
