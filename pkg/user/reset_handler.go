@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
-	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
@@ -58,7 +57,7 @@ func (h *resetHandler) HandleReset(w http.ResponseWriter, r *http.Request) {
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
-	if authorized, err := h.s2sVerifier.IsAuthorized(updateProfileAllowed, svcToken); !authorized {
+	if _, err := h.s2sVerifier.BuildAuthorized(updateProfileAllowed, svcToken); err != nil {
 		h.logger.Error("password reset handler failed to authorize service token", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
@@ -66,7 +65,8 @@ func (h *resetHandler) HandleReset(w http.ResponseWriter, r *http.Request) {
 
 	// validate iam access token
 	accessToken := r.Header.Get("Authorization")
-	if authorized, err := h.iamVerifier.IsAuthorized(updateProfileAllowed, accessToken); !authorized {
+	authorized, err := h.iamVerifier.BuildAuthorized(updateProfileAllowed, accessToken)
+	if err != nil {
 		h.logger.Error("password reset handler failed to authorize iam token", "err", err.Error())
 		connect.RespondAuthFailure(connect.User, err, w)
 		return
@@ -95,26 +95,14 @@ func (h *resetHandler) HandleReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// parse token for username
-	jot, err := jwt.BuildFromToken(strings.TrimPrefix(accessToken, "Bearer "))
-	if err != nil {
-		h.logger.Error("failed to parse jwt token", "err", err.Error())
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusInternalServerError,
-			Message:    "failed to parse jwt token",
-		}
-		e.SendJsonErr(w)
-		return
-	}
-
 	// update password
-	// this will check if the user exists, is valid, and if the current password is correct
-	if err := h.service.ResetPassword(jot.Claims.Subject, cmd); err != nil {
+	// this function checks if the user exists, is valid, and if the current password is correct
+	if err := h.service.ResetPassword(authorized.Claims.Subject, cmd); err != nil {
 		h.service.HandleServiceErr(err, w)
 		return
 	}
 
-	h.logger.Info(fmt.Sprintf("user %s's password was successfully reset.", jot.Claims.Subject))
+	h.logger.Info(fmt.Sprintf("user %s's password was successfully reset.", authorized.Claims.Subject))
 
 	// return 204
 	w.WriteHeader(http.StatusNoContent)

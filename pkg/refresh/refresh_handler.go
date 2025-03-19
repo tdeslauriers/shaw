@@ -68,7 +68,7 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 
 	// validate service token
 	svcToken := r.Header.Get("Service-Authorization")
-	if authorized, err := h.verifier.IsAuthorized(allowed, svcToken); !authorized {
+	if _, err := h.verifier.BuildAuthorized(allowed, svcToken); err != nil {
 		h.logger.Error("login handler failed to authorize service token for /refresh", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
@@ -253,7 +253,7 @@ func (h *handler) HandleDestroy(w http.ResponseWriter, r *http.Request) {
 
 	// validate service token
 	svcToken := r.Header.Get("Service-Authorization")
-	if authorized, err := h.verifier.IsAuthorized(allowed, svcToken); !authorized {
+	if _, err := h.verifier.BuildAuthorized(allowed, svcToken); err != nil {
 		h.logger.Error("login handler failed to authorize service token for /refresh/destroy", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return

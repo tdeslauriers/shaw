@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
-	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
@@ -56,7 +55,7 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 
 	// validate s2s token
 	s2sToken := r.Header.Get("Service-Authorization")
-	if authorized, err := h.s2sVerifier.IsAuthorized(updateUserAllowed, s2sToken); !authorized {
+	if _, err := h.s2sVerifier.BuildAuthorized(updateUserAllowed, s2sToken); err != nil {
 		h.logger.Error(fmt.Sprintf("user scopes handler failed to authorize s2s token: %s", err.Error()))
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
@@ -64,7 +63,8 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 
 	// validate iam token
 	iamToken := r.Header.Get("Authorization")
-	if authorized, err := h.iamVerifier.IsAuthorized(updateUserAllowed, iamToken); !authorized {
+	authorized, err := h.iamVerifier.BuildAuthorized(updateUserAllowed, iamToken)
+	if err != nil {
 		h.logger.Error(fmt.Sprintf("user scopes handler failed to authorize iam token: %s", err.Error()))
 		connect.RespondAuthFailure(connect.User, err, w)
 		return
@@ -111,9 +111,7 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// log success
-	// unlikely to error here because already parsed successully above
-	jot, _ := jwt.BuildFromToken(strings.TrimPrefix(iamToken, "Bearer "))
-	h.logger.Info(fmt.Sprintf("user %s's scopes successfully updated by %s", u.Username, jot.Claims.Subject))
+	h.logger.Info(fmt.Sprintf("user %s's scopes successfully updated by %s", u.Username, authorized.Claims.Subject))
 
 	// respond 204
 	w.WriteHeader(http.StatusNoContent)

@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
-	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
@@ -66,7 +65,7 @@ func (h *profileHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
-	if authorized, err := h.s2sVerifier.IsAuthorized(getProfileAllowed, svcToken); !authorized {
+	if _, err := h.s2sVerifier.BuildAuthorized(getProfileAllowed, svcToken); err != nil {
 		h.logger.Error(fmt.Sprintf("/profile handler failed to authorize service token: %s", err.Error()))
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
@@ -74,21 +73,10 @@ func (h *profileHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 
 	// validate iam access token
 	accessToken := r.Header.Get("Authorization")
-	if authorized, err := h.iamVerifier.IsAuthorized(getProfileAllowed, accessToken); !authorized {
+	authorized, err := h.iamVerifier.BuildAuthorized(getProfileAllowed, accessToken)
+	if err != nil {
 		h.logger.Error(fmt.Sprintf("/profile handler failed to authorize iam token: %s", err.Error()))
 		connect.RespondAuthFailure(connect.User, err, w)
-		return
-	}
-
-	// parse token for username
-	jot, err := jwt.BuildFromToken(strings.TrimPrefix(accessToken, "Bearer "))
-	if err != nil {
-		h.logger.Error(fmt.Sprintf("failed to parse jwt token: %s", err.Error()))
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusInternalServerError,
-			Message:    "failed to parse jwt token",
-		}
-		e.SendJsonErr(w)
 		return
 	}
 
@@ -97,9 +85,9 @@ func (h *profileHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 	// it is not submitted by requestor, ie, not a url parameter,
 	// because a user should only be able to see their own profile
 	// based on a cryptographically signed token value.
-	u, err := h.service.GetProfile(jot.Claims.Subject)
+	u, err := h.service.GetProfile(authorized.Claims.Subject)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("failed to get user profile %s: %s", jot.Claims.Subject, err.Error()))
+		h.logger.Error(fmt.Sprintf("failed to get user profile %s: %s", authorized.Claims.Subject, err.Error()))
 		h.service.HandleServiceErr(err, w)
 		return
 	}
@@ -122,7 +110,7 @@ func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
-	if authorized, err := h.s2sVerifier.IsAuthorized(updateProfileAllowed, svcToken); !authorized {
+	if _, err := h.s2sVerifier.BuildAuthorized(updateProfileAllowed, svcToken); err != nil {
 		h.logger.Error(fmt.Sprintf("/profile handler failed to authorize service token: %s", err.Error()))
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
@@ -130,7 +118,8 @@ func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// validate iam access token
 	accessToken := r.Header.Get("Authorization")
-	if authorized, err := h.iamVerifier.IsAuthorized(updateProfileAllowed, accessToken); !authorized {
+	authorized, err := h.iamVerifier.BuildAuthorized(updateProfileAllowed, accessToken)
+	if err != nil {
 		h.logger.Error(fmt.Sprintf("/profile handler failed to authorize iam token: %s", err.Error()))
 		connect.RespondAuthFailure(connect.User, err, w)
 		return
@@ -157,23 +146,10 @@ func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// parse token for username: you can only update your own data record
-	// username from put/poste cmd discarded
-	jot, err := jwt.BuildFromToken(strings.TrimPrefix(accessToken, "Bearer "))
-	if err != nil {
-		h.logger.Error(fmt.Sprintf("failed to parse jwt token: %s", err.Error()))
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusInternalServerError,
-			Message:    "failed to parse jwt token",
-		}
-		e.SendJsonErr(w)
-		return
-	}
-
 	// get user data for audit log
-	user, err := h.service.GetProfile(jot.Claims.Subject)
+	user, err := h.service.GetProfile(authorized.Claims.Subject)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("failed to get user profile %s for update: %s", jot.Claims.Subject, err.Error()))
+		h.logger.Error(fmt.Sprintf("failed to get user profile %s for update: %s", authorized.Claims.Subject, err.Error()))
 		h.service.HandleServiceErr(err, w)
 		return
 	}
@@ -200,15 +176,15 @@ func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// audit log
 	if user.Firstname != cmd.Firstname {
-		h.logger.Info(fmt.Sprintf("user profile firstname updated from %s to %s by %s", user.Firstname, cmd.Firstname, jot.Claims.Subject))
+		h.logger.Info(fmt.Sprintf("user profile firstname updated from %s to %s by %s", user.Firstname, cmd.Firstname, authorized.Claims.Subject))
 	}
 
 	if user.Lastname != cmd.Lastname {
-		h.logger.Info(fmt.Sprintf("user profile lastname updated from %s to %s by %s", user.Lastname, cmd.Lastname, jot.Claims.Subject))
+		h.logger.Info(fmt.Sprintf("user profile lastname updated from %s to %s by %s", user.Lastname, cmd.Lastname, authorized.Claims.Subject))
 	}
 
 	if user.BirthDate != cmd.BirthDate {
-		h.logger.Info(fmt.Sprintf("user profile date of birth updated from %s to %s by %s", user.BirthDate, cmd.BirthDate, jot.Claims.Subject))
+		h.logger.Info(fmt.Sprintf("user profile date of birth updated from %s to %s by %s", user.BirthDate, cmd.BirthDate, authorized.Claims.Subject))
 	}
 
 	w.Header().Set("Content-Type", "application/json")

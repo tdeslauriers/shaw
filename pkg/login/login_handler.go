@@ -57,7 +57,7 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// validate service token
 	svcToken := r.Header.Get("Service-Authorization")
-	if authorized, err := h.s2sVerifier.IsAuthorized(allowed, svcToken); !authorized {
+	if _, err := h.s2sVerifier.BuildAuthorized(allowed, svcToken); err != nil {
 		h.logger.Error("login handler failed to authorize service token", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return

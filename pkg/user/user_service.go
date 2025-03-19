@@ -85,7 +85,8 @@ func (s *userService) GetUsers() ([]Profile, error) {
 				enabled,
 				account_expired,
 				account_locked
-			FROM account`
+			FROM account
+			ORDER BY lastname, firstname ASC`
 	if err := s.db.SelectRecords(qry, &users); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, errors.New(ErrUsersNotFound)

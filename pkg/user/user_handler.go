@@ -59,14 +59,14 @@ func (h *userHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
-	if authorized, err := h.s2sVerifier.IsAuthorized(getUserAllowed, svcToken); !authorized {
+	if _, err := h.s2sVerifier.BuildAuthorized(getUserAllowed, svcToken); err != nil {
 		h.logger.Error(fmt.Sprintf("/users handler failed to authorize service token: %s", err.Error()))
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
 
 	accessToken := r.Header.Get("Authorization")
-	if authorized, err := h.iamVerifier.IsAuthorized(getUserAllowed, accessToken); !authorized {
+	if _, err := h.iamVerifier.BuildAuthorized(getUserAllowed, accessToken); err != nil {
 		h.logger.Error(fmt.Sprintf("/users handler failed to authorize iam token: %s", err.Error()))
 		connect.RespondAuthFailure(connect.User, err, w)
 		return
@@ -99,27 +99,6 @@ func (h *userHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 // HandleUser handles the requests for a single user
 func (h *userHandler) HandleUser(w http.ResponseWriter, r *http.Request) {
 
-	switch r.Method {
-	case http.MethodGet:
-		h.handleGetUser(w, r)
-		return
-	case http.MethodPost:
-		h.handleUpdateUser(w, r)
-		return
-	default:
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusMethodNotAllowed,
-			Message:    "only GET and POST http methods allowed",
-		}
-		e.SendJsonErr(w)
-		return
-	}
-
-}
-
-// handleGetUser handles the get request for a single user record by user slug
-func (h *userHandler) handleGetUser(w http.ResponseWriter, r *http.Request) {
-
 	// break path into segments
 	segments := strings.Split(r.URL.Path, "/")
 
@@ -149,17 +128,38 @@ func (h *userHandler) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// determine allowed scopes based on whether iamVerifier is nil --> service endpoint or user endpoint
-	var allowedRead []string
+	switch r.Method {
+	case http.MethodGet:
+		h.handleGetUser(w, r, slug)
+		return
+	case http.MethodPost:
+		h.handleUpdateUser(w, r, slug)
+		return
+	default:
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusMethodNotAllowed,
+			Message:    "only GET and POST http methods allowed",
+		}
+		e.SendJsonErr(w)
+		return
+	}
+
+}
+
+// handleGetUser handles the get request for a single user record by user slug
+func (h *userHandler) handleGetUser(w http.ResponseWriter, r *http.Request, slug string) {
+
+	// get correct scopes
+	var requiredScopes []string
 	if h.iamVerifier == nil {
-		allowedRead = s2sGetUserAllowed
+		requiredScopes = s2sGetUserAllowed
 	} else {
-		allowedRead = getUserAllowed
+		requiredScopes = getUserAllowed
 	}
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
-	if authorized, err := h.s2sVerifier.IsAuthorized(allowedRead, svcToken); !authorized {
+	if _, err := h.s2sVerifier.BuildAuthorized(requiredScopes, svcToken); err != nil {
 		h.logger.Error(fmt.Sprintf("/users/%s get-handler failed to authorize service token: %s", slug, err.Error()))
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
@@ -168,7 +168,7 @@ func (h *userHandler) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	// check if iamVerifier is nil, if not nil, validate user iam token
 	if h.iamVerifier != nil {
 		accessToken := r.Header.Get("Authorization")
-		if authorized, err := h.iamVerifier.IsAuthorized(allowedRead, accessToken); !authorized {
+		if _, err := h.iamVerifier.BuildAuthorized(requiredScopes, accessToken); err != nil {
 			h.logger.Error(fmt.Sprintf("/users/%s get-handler failed to authorize iam token: %s", slug, err.Error()))
 			connect.RespondAuthFailure(connect.User, err, w)
 			return
@@ -197,62 +197,24 @@ func (h *userHandler) handleGetUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleUpdateUser handles the update request for a single user record by user slug
-func (h *userHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
-
-	// break path into segments
-	segments := strings.Split(r.URL.Path, "/")
-
-	var slug string
-	if len(segments) > 1 {
-		slug = segments[len(segments)-1]
-	} else {
-		errMsg := "no user slug provided in post /users/{slug} request"
-		h.logger.Error(errMsg)
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusBadRequest,
-			Message:    errMsg,
-		}
-		e.SendJsonErr(w)
-		return
-	}
-
-	// lightweight validation of slug
-	if len(slug) < 16 || len(slug) > 64 {
-		errMsg := "invalid user slug provided in post /users/{slug} request"
-		h.logger.Error(errMsg)
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusBadRequest,
-			Message:    errMsg,
-		}
-		e.SendJsonErr(w)
-		return
-	}
+// takes in the subject of an authorized token to log the user update
+func (h *userHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request, slug string) {
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
-	if authorized, err := h.s2sVerifier.IsAuthorized(updateUserAllowed, svcToken); !authorized {
-		h.logger.Error(fmt.Sprintf("/users/%s post-handler failed to authorize service token: %s", slug, err.Error()))
+	if _, err := h.s2sVerifier.BuildAuthorized(updateUserAllowed, svcToken); err != nil {
+		h.logger.Error(fmt.Sprintf("/users/%s get-handler failed to authorize service token: %s", slug, err.Error()))
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
 
-	// validate iam token
-	accessToken := r.Header.Get("Authorization")
-	if authorized, err := h.iamVerifier.IsAuthorized(updateUserAllowed, accessToken); !authorized {
-		h.logger.Error(fmt.Sprintf("/users/%s post-handler failed to authorize iam token: %s", slug, err.Error()))
-		connect.RespondAuthFailure(connect.User, err, w)
-		return
-	}
+	// check if iamVerifier is nil, if not nil, validate user iam token
 
-	// needed for the audit log (who is making the changes)
-	jot, err := jwt.BuildFromToken(strings.TrimPrefix(accessToken, "Bearer "))
+	accessToken := r.Header.Get("Authorization")
+	authorized, err := h.iamVerifier.BuildAuthorized(updateUserAllowed, accessToken)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("/users/%s post-handler failed to parse jwt token: %s", slug, err.Error()))
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusInternalServerError,
-			Message:    "failed to parse jwt token",
-		}
-		e.SendJsonErr(w)
+		h.logger.Error(fmt.Sprintf("/users/%s get-handler failed to authorize iam token: %s", slug, err.Error()))
+		connect.RespondAuthFailure(connect.User, err, w)
 		return
 	}
 
@@ -309,27 +271,27 @@ func (h *userHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	// audit log
 	if user.Firstname != cmd.Firstname {
-		h.logger.Info(fmt.Sprintf("%s updated user %s's firstname from %s to %s", jot.Claims.Subject, user.Username, user.Firstname, cmd.Firstname))
+		h.logger.Info(fmt.Sprintf("%s updated user %s's firstname from %s to %s", authorized.Claims.Subject, user.Username, user.Firstname, cmd.Firstname))
 	}
 
 	if user.Lastname != cmd.Lastname {
-		h.logger.Info(fmt.Sprintf("%s updated user %s's lastname from %s to %s", jot.Claims.Subject, user.Username, user.Lastname, cmd.Lastname))
+		h.logger.Info(fmt.Sprintf("%s updated user %s's lastname from %s to %s", authorized.Claims.Subject, user.Username, user.Lastname, cmd.Lastname))
 	}
 
 	if user.BirthDate != cmd.BirthDate {
-		h.logger.Info(fmt.Sprintf("%s updated user %s's birthdate from %s to %s", jot.Claims.Subject, user.Username, user.BirthDate, cmd.BirthDate))
+		h.logger.Info(fmt.Sprintf("%s updated user %s's birthdate from %s to %s", authorized.Claims.Subject, user.Username, user.BirthDate, cmd.BirthDate))
 	}
 
 	if user.Enabled != cmd.Enabled {
-		h.logger.Info(fmt.Sprintf("%s updated user %s's enabled status from %t to %t", jot.Claims.Subject, user.Username, user.Enabled, cmd.Enabled))
+		h.logger.Info(fmt.Sprintf("%s updated user %s's enabled status from %t to %t", authorized.Claims.Subject, user.Username, user.Enabled, cmd.Enabled))
 	}
 
 	if user.AccountExpired != cmd.AccountExpired {
-		h.logger.Info(fmt.Sprintf("%s updated user %s's account expired status from %t to %t", jot.Claims.Subject, user.Username, user.AccountExpired, cmd.AccountExpired))
+		h.logger.Info(fmt.Sprintf("%s updated user %s's account expired status from %t to %t", authorized.Claims.Subject, user.Username, user.AccountExpired, cmd.AccountExpired))
 	}
 
 	if user.AccountLocked != cmd.AccountLocked {
-		h.logger.Info(fmt.Sprintf("%s updated user %s's account locked status from %t to %t", jot.Claims.Subject, user.Username, user.AccountLocked, cmd.AccountLocked))
+		h.logger.Info(fmt.Sprintf("%s updated user %s's account locked status from %t to %t", authorized.Claims.Subject, user.Username, user.AccountLocked, cmd.AccountLocked))
 	}
 
 	// send user record response

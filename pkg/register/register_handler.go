@@ -51,7 +51,7 @@ func (h *handler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
-	if authorized, err := h.verifier.IsAuthorized(allowed, svcToken); !authorized {
+	if _, err := h.verifier.BuildAuthorized(allowed, svcToken); err != nil {
 		h.logger.Error("registration handler failed to authorize service token", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return

@@ -62,7 +62,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
-	if authorized, err := h.s2sVerifier.IsAuthorized(allowed, svcToken); !authorized {
+	if _, err := h.s2sVerifier.BuildAuthorized(allowed, svcToken); err != nil {
 		h.logger.Error("callback handler failed to authorize service token", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
