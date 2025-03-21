@@ -1,6 +1,18 @@
 package util
 
 const (
+	PackageKey = "package"
+
+	PackageAuth     = "authentication"
+	PackageCallback = "callback"
+	PackageIdentity = "identity"
+	PackageGroup    = "group"
+	PackageLogin    = "login"
+	PackageOauth    = "oauth"
+	PackageRegister = "register"
+	PackageScope    = "scope"
+	PackageUser     = "user"
+
 	ComponentKey = "component"
 
 	ComponentMain       = "main"
@@ -16,6 +28,7 @@ const (
 	ComponentUser       = "user"
 	ComponentReset      = "reset password"
 	ComponentUserScopes = "user scopes"
+	ComponentGroup      = "group"
 
 	ServiceKey = "service"
 )

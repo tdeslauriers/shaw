@@ -20,6 +20,7 @@ type UserHandler interface {
 
 	// HandleUser handles the request for a single user
 	HandleUser(w http.ResponseWriter, r *http.Request)
+
 }
 
 // NewUserHandler creates a new UserHandler interface by returning a pointer to a new concrete implementation of the UserHandler interface
@@ -307,3 +308,5 @@ func (h *userHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request, s
 		return
 	}
 }
+
+

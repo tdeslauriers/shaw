@@ -198,6 +198,7 @@ func (i *identity) Run() error {
 	// users endpoints for s2s clients (not user facing)
 	// requires s2s service-call-specific scopes
 	mux.HandleFunc("/s2s/users/", s2sUserHandler.HandleUser)
+	mux.HandleFunc("/s2s/users/groups", s2sUserHandler.HandleUserGroups)
 
 	mux.HandleFunc("/profile", userHandler.HandleProfile)
 	mux.HandleFunc("/reset", userHandler.HandleReset)

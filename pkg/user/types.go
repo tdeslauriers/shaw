@@ -52,12 +52,17 @@ var (
 var (
 	s2sGetUserAllowed = []string{"r:shaw:s2s:user:*"}
 
+	s2sGetGroupsAllowed = []string{"r:shaw:s2s:users:groups:*"}
+
 	getUserAllowed    = []string{"r:shaw:user:*"}
 	updateUserAllowed = []string{"w:shaw:user:*"}
+
+	getGroupsAllowed = []string{"r:shaw:users:groups:*"}
 )
 
 // Handler interface for user profile request handling
 type Handler interface {
+	GroupsHandler
 	ProfileHandler
 	ResetHandler
 	ScopesHandler
@@ -67,6 +72,7 @@ type Handler interface {
 // NewHandler creates a new Handler interface by returning a pointer to a new concrete implementation of the Handler interface
 func NewHandler(s Service, s2s jwt.Verifier, iam jwt.Verifier) Handler {
 	return &handler{
+		GroupsHandler:  NewGroupsHandler(s, s2s, iam),
 		ProfileHandler: NewProfileHandler(s, s2s, iam),
 		ResetHandler:   NewResetHandler(s, s2s, iam),
 		ScopesHandler:  NewScopesHandler(s, s2s, iam),
@@ -77,6 +83,7 @@ func NewHandler(s Service, s2s jwt.Verifier, iam jwt.Verifier) Handler {
 var _ Handler = (*handler)(nil)
 
 type handler struct {
+	GroupsHandler
 	ProfileHandler
 	ResetHandler
 	ScopesHandler
@@ -86,6 +93,7 @@ type handler struct {
 // Service is the interface for the user service functionality like retrieving user data by username from the db.
 type Service interface {
 	UserService
+	GroupService
 	ResetService
 	UserErrService
 }
@@ -95,6 +103,7 @@ type Service interface {
 func NewService(db data.SqlRepository, i data.Indexer, c data.Cryptor, p provider.S2sTokenProvider, call connect.S2sCaller) Service {
 	return &service{
 		UserService:    NewUserService(db, i, c, scope.NewScopesService(db, i, p, call)),
+		GroupService:   NewGroupService(db, i, c, scope.NewScopesService(db, i, p, call)),
 		ResetService:   NewResetService(db, i),
 		UserErrService: NewUserErrService(),
 	}
@@ -106,6 +115,7 @@ var _ Service = (*service)(nil)
 // and is composed of the UserService, ResetService, and UserErrService interfaces.
 type service struct {
 	UserService
+	GroupService
 	ResetService
 	UserErrService
 }
