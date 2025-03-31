@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/tdeslauriers/carapace/pkg/data"
-	"github.com/tdeslauriers/carapace/pkg/session/types"
 )
 
 // GroupService interface handles services related to groups of users
@@ -72,7 +71,7 @@ func (s *groupService) GetUsersWithScopes(scopes []string) ([]Profile, error) {
 		return nil, fmt.Errorf("failed to get all scopes from s2s service: %v", err)
 	}
 
-	valid := make([]types.Scope, 0, len(scopes))
+	valid := make([]string, 0, len(scopes))
 	for _, s := range scopes {
 		if len(s) == 0 || len(s) > 100 {
 			return nil, fmt.Errorf("invalid scope: %s", s)
@@ -82,7 +81,8 @@ func (s *groupService) GetUsersWithScopes(scopes []string) ([]Profile, error) {
 		for _, a := range allScopes {
 			if a.Scope == s {
 				exists = true
-				valid = append(valid, a)
+				// get the uuids for xref table
+				valid = append(valid, a.Uuid)
 				break
 			}
 		}
@@ -108,15 +108,17 @@ func (s *groupService) GetUsersWithScopes(scopes []string) ([]Profile, error) {
 				a.account_expired,
 				a.account_locked
 			FROM account a 
-				LEFT OUTER JOIN account_scope as on a.uuid = as.account_uuid
-			WHERE `)
-	for i, _ := range valid {
-		query.WriteString(`as.scope = ?`)
+				LEFT OUTER JOIN account_scope a_s ON a.uuid = a_s.account_uuid
+			WHERE a_s.scope_uuid IN (`)
+
+	for i := range valid {
+		query.WriteString(`?`)
 		if i < len(valid)-1 {
-			query.WriteString(" OR ")
+			query.WriteString(`, `)
 		}
 	}
-	query.WriteString(`ORDER BY lastname, firstname ASC`)
+	query.WriteString(`)`)
+	query.WriteString(` ORDER BY a.lastname, a.firstname ASC`)
 
 	// needs to be this type
 	var records []Profile

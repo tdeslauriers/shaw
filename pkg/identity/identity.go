@@ -219,8 +219,9 @@ func (i *identity) Run() error {
 		}
 	}()
 
-	go i.cleanup.ExpiredRefresh(12)
-	go i.cleanup.ExpiredAuthcode()
+	i.cleanup.ExpiredRefresh(12)
+	i.cleanup.ExpiredAuthcode()
+	i.cleanup.ExpiredS2s()
 
 	return nil
 }

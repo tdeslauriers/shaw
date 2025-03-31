@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"shaw/internal/util"
-	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
@@ -20,7 +19,6 @@ type UserHandler interface {
 
 	// HandleUser handles the request for a single user
 	HandleUser(w http.ResponseWriter, r *http.Request)
-
 }
 
 // NewUserHandler creates a new UserHandler interface by returning a pointer to a new concrete implementation of the UserHandler interface
@@ -100,41 +98,12 @@ func (h *userHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 // HandleUser handles the requests for a single user
 func (h *userHandler) HandleUser(w http.ResponseWriter, r *http.Request) {
 
-	// break path into segments
-	segments := strings.Split(r.URL.Path, "/")
-
-	var slug string
-	if len(segments) > 1 {
-		slug = segments[len(segments)-1]
-	} else {
-		errMsg := "no user slug provided in get /users/{slug} request"
-		h.logger.Error(errMsg)
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusBadRequest,
-			Message:    errMsg,
-		}
-		e.SendJsonErr(w)
-		return
-	}
-
-	// lightweight validation of slug
-	if len(slug) < 16 || len(slug) > 64 {
-		errMsg := "invalid user slug provided in get /users/{slug} request"
-		h.logger.Error(errMsg)
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusBadRequest,
-			Message:    errMsg,
-		}
-		e.SendJsonErr(w)
-		return
-	}
-
 	switch r.Method {
 	case http.MethodGet:
-		h.handleGetUser(w, r, slug)
+		h.handleGetUser(w, r)
 		return
 	case http.MethodPost:
-		h.handleUpdateUser(w, r, slug)
+		h.handleUpdateUser(w, r)
 		return
 	default:
 		e := connect.ErrorHttp{
@@ -148,7 +117,7 @@ func (h *userHandler) HandleUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGetUser handles the get request for a single user record by user slug
-func (h *userHandler) handleGetUser(w http.ResponseWriter, r *http.Request, slug string) {
+func (h *userHandler) handleGetUser(w http.ResponseWriter, r *http.Request) {
 
 	// get correct scopes
 	var requiredScopes []string
@@ -161,7 +130,7 @@ func (h *userHandler) handleGetUser(w http.ResponseWriter, r *http.Request, slug
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
 	if _, err := h.s2sVerifier.BuildAuthorized(requiredScopes, svcToken); err != nil {
-		h.logger.Error(fmt.Sprintf("/users/%s get-handler failed to authorize service token: %s", slug, err.Error()))
+		h.logger.Error(fmt.Sprintf("/users/slug get-handler failed to authorize service token: %s", err.Error()))
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
@@ -170,10 +139,22 @@ func (h *userHandler) handleGetUser(w http.ResponseWriter, r *http.Request, slug
 	if h.iamVerifier != nil {
 		accessToken := r.Header.Get("Authorization")
 		if _, err := h.iamVerifier.BuildAuthorized(requiredScopes, accessToken); err != nil {
-			h.logger.Error(fmt.Sprintf("/users/%s get-handler failed to authorize iam token: %s", slug, err.Error()))
+			h.logger.Error(fmt.Sprintf("/users/slug get-handler failed to authorize iam token: %s", err.Error()))
 			connect.RespondAuthFailure(connect.User, err, w)
 			return
 		}
+	}
+
+	// get the url slug from the request
+	slug, err := connect.GetValidSlug(r)
+	if err != nil {
+		h.logger.Error(fmt.Sprintf("failed to get valid slug from request: %s", err.Error()))
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusBadRequest,
+			Message:    "invalid service client slug",
+		}
+		e.SendJsonErr(w)
+		return
 	}
 
 	// get user from user service
@@ -199,12 +180,12 @@ func (h *userHandler) handleGetUser(w http.ResponseWriter, r *http.Request, slug
 
 // handleUpdateUser handles the update request for a single user record by user slug
 // takes in the subject of an authorized token to log the user update
-func (h *userHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request, slug string) {
+func (h *userHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
 	if _, err := h.s2sVerifier.BuildAuthorized(updateUserAllowed, svcToken); err != nil {
-		h.logger.Error(fmt.Sprintf("/users/%s get-handler failed to authorize service token: %s", slug, err.Error()))
+		h.logger.Error(fmt.Sprintf("/users/slug get-handler failed to authorize service token: %s", err.Error()))
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
@@ -214,8 +195,20 @@ func (h *userHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request, s
 	accessToken := r.Header.Get("Authorization")
 	authorized, err := h.iamVerifier.BuildAuthorized(updateUserAllowed, accessToken)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("/users/%s get-handler failed to authorize iam token: %s", slug, err.Error()))
+		h.logger.Error(fmt.Sprintf("/users/slug get-handler failed to authorize iam token: %s", err.Error()))
 		connect.RespondAuthFailure(connect.User, err, w)
+		return
+	}
+
+	// get the url slug from the request
+	slug, err := connect.GetValidSlug(r)
+	if err != nil {
+		h.logger.Error(fmt.Sprintf("failed to get valid slug from request: %s", err.Error()))
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusBadRequest,
+			Message:    "invalid service client slug",
+		}
+		e.SendJsonErr(w)
 		return
 	}
 
@@ -308,5 +301,3 @@ func (h *userHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request, s
 		return
 	}
 }
-
-
