@@ -2,7 +2,7 @@
 
 # variables
 NAMESPACE="world"
-SECRET_NAME="secret-identity-server-cert"
+SECRET_NAME="secret-shaw-server-cert"
 
 # get certificate and key from 1Password
 SERVER_CERT=$(op document get "shaw_service_server_prod_cert" --vault world_site | base64 -w 0)

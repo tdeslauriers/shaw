@@ -39,22 +39,22 @@ spec:
             - name: SHAW_SERVER_CERT
               valueFrom:
                 secretKeyRef:
-                  name: secret-identity-server-cert
+                  name: secret-shaw-server-cert
                   key: server-cert
             - name: SHAW_SERVER_KEY
               valueFrom:
                 secretKeyRef:
-                  name: secret-identity-server-cert
+                  name: secret-shaw-server-cert
                   key: server-key
             - name: SHAW_CLIENT_CERT
               valueFrom:
                 secretKeyRef:
-                  name: secret-identity-client-cert
+                  name: secret-shaw-client-cert
                   key: client-cert
             - name: SHAW_CLIENT_KEY
               valueFrom:
                 secretKeyRef:
-                  name: secret-identity-client-cert
+                  name: secret-shaw-client-cert
                   key: client-key
             - name: SHAW_S2S_AUTH_URL
               valueFrom:
@@ -79,12 +79,12 @@ spec:
             - name: SHAW_DB_CLIENT_CERT
               valueFrom:
                 secretKeyRef:
-                  name: secret-identity-db-client-cert
+                  name: secret-shaw-db-client-cert
                   key: client-cert
             - name: SHAW_DB_CLIENT_KEY
               valueFrom:
                 secretKeyRef:
-                  name: secret-identity-db-client-cert
+                  name: secret-shaw-db-client-cert
                   key: client-key
             - name: SHAW_DATABASE_URL
               valueFrom:
