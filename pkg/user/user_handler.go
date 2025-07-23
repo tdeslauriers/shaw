@@ -80,19 +80,18 @@ func (h *userHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// send user records response
-	usersJson, err := json.Marshal(users)
-	if err != nil {
-		h.logger.Error(fmt.Sprintf("/users handler failed to marshal users: %s", err.Error()))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(users); err != nil {
+		h.logger.Error(fmt.Sprintf("/users handler failed to json encode users: %s", err.Error()))
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
-			Message:    "failed to marshal users",
+			Message:    "failed to json encode users",
 		}
 		e.SendJsonErr(w)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(usersJson) // writes status code 200 as part of execution
 }
 
 // HandleUser handles the requests for a single user
@@ -165,7 +164,7 @@ func (h *userHandler) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// send user record response
+	// send user records response
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(user); err != nil {
 		h.logger.Error(fmt.Sprintf("/users/%s get-handler failed to json encode user: %s", slug, err.Error()))

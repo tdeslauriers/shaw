@@ -176,30 +176,29 @@ func (i *identity) CloseDb() error {
 
 func (i *identity) Run() error {
 
-	registerHandler := register.NewHandler(i.registerService, i.s2sVerifier)
-	loginHandler := login.NewHandler(i.authService, i.oathService, i.s2sVerifier)
-	callbackHandler := callback.NewHandler(i.s2sVerifier, i.authService, i.oathService)
-
-	refreshHandler := refresh.NewHandler(i.authService, i.s2sVerifier, i.userService)
-
-	s2sUserHandler := user.NewHandler(i.userService, i.s2sVerifier, nil)
-	userHandler := user.NewHandler(i.userService, i.s2sVerifier, i.iamVerifier)
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", diagnostics.HealthCheckHandler)
 
+	registerHandler := register.NewHandler(i.registerService, i.s2sVerifier)
 	mux.HandleFunc("/register", registerHandler.HandleRegistration)
+
+	loginHandler := login.NewHandler(i.authService, i.oathService, i.s2sVerifier)
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
+
+	callbackHandler := callback.NewHandler(i.s2sVerifier, i.authService, i.oathService)
 	mux.HandleFunc("/callback", callbackHandler.HandleCallback)
 
+	refreshHandler := refresh.NewHandler(i.authService, i.s2sVerifier, i.userService)
 	mux.HandleFunc("/refresh", refreshHandler.HandleRefresh)
 	mux.HandleFunc("/refresh/destroy", refreshHandler.HandleDestroy)
 
 	// users endpoints for s2s clients (not user facing)
 	// requires s2s service-call-specific scopes
+	s2sUserHandler := user.NewHandler(i.userService, i.s2sVerifier, nil)
 	mux.HandleFunc("/s2s/users/", s2sUserHandler.HandleUser)
 	mux.HandleFunc("/s2s/users/groups", s2sUserHandler.HandleUserGroups)
 
+	userHandler := user.NewHandler(i.userService, i.s2sVerifier, i.iamVerifier)
 	mux.HandleFunc("/profile", userHandler.HandleProfile)
 	mux.HandleFunc("/reset", userHandler.HandleReset)
 	mux.HandleFunc("/users", userHandler.HandleUsers)
