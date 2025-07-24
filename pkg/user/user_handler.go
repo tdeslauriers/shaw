@@ -56,19 +56,30 @@ func (h *userHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// get correct scopes
+	var requiredScopes []string
+	if h.iamVerifier == nil {
+		requiredScopes = s2sGetUserAllowed
+	} else {
+		requiredScopes = getUserAllowed
+	}
+
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
-	if _, err := h.s2sVerifier.BuildAuthorized(getUserAllowed, svcToken); err != nil {
+	if _, err := h.s2sVerifier.BuildAuthorized(requiredScopes, svcToken); err != nil {
 		h.logger.Error(fmt.Sprintf("/users handler failed to authorize service token: %s", err.Error()))
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
 
-	accessToken := r.Header.Get("Authorization")
-	if _, err := h.iamVerifier.BuildAuthorized(getUserAllowed, accessToken); err != nil {
-		h.logger.Error(fmt.Sprintf("/users handler failed to authorize iam token: %s", err.Error()))
-		connect.RespondAuthFailure(connect.User, err, w)
-		return
+	// check if iamVerifier is nil, if not nil, validate user iam token
+	if h.iamVerifier != nil {
+		accessToken := r.Header.Get("Authorization")
+		if _, err := h.iamVerifier.BuildAuthorized(requiredScopes, accessToken); err != nil {
+			h.logger.Error(fmt.Sprintf("/users handler failed to authorize iam token: %s", err.Error()))
+			connect.RespondAuthFailure(connect.User, err, w)
+			return
+		}
 	}
 
 	// get users from user service

@@ -195,6 +195,7 @@ func (i *identity) Run() error {
 	// users endpoints for s2s clients (not user facing)
 	// requires s2s service-call-specific scopes
 	s2sUserHandler := user.NewHandler(i.userService, i.s2sVerifier, nil)
+	mux.HandleFunc("/s2s/users", s2sUserHandler.HandleUsers)
 	mux.HandleFunc("/s2s/users/", s2sUserHandler.HandleUser)
 	mux.HandleFunc("/s2s/users/groups", s2sUserHandler.HandleUserGroups)
 
