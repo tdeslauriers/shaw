@@ -71,8 +71,8 @@ func (s *errAuth) HandleServiceErr(err error, w http.ResponseWriter) {
 		}
 		e.SendJsonErr(w)
 		return
-	case strings.Contains(err.Error(), "not found"):
-	case strings.Contains(err.Error(), "does not exist"):
+	case strings.Contains(err.Error(), "not found") ||
+		strings.Contains(err.Error(), "does not exist"):
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusNotFound,
 			Message:    "not found",
