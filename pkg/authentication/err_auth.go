@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"shaw/internal/util"
 	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
+	"github.com/tdeslauriers/shaw/internal/util"
 )
 
 // AuthErrService is an interface for handling errors returned by the service methods and sending the appropriate error response to the client.
@@ -34,8 +34,6 @@ type errAuth struct {
 // HandleServiceErr handles errors returned by the service methods and sends the appropriate error response to the client.
 func (s *errAuth) HandleServiceErr(err error, w http.ResponseWriter) {
 	switch {
-
-	// 401
 	case strings.Contains(err.Error(), ErrInvalidUsernamePassword):
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
@@ -71,7 +69,7 @@ func (s *errAuth) HandleServiceErr(err error, w http.ResponseWriter) {
 		}
 		e.SendJsonErr(w)
 		return
-	case strings.Contains(err.Error(), "not found") ||
+	case strings.Contains(err.Error(), "not found"),
 		strings.Contains(err.Error(), "does not exist"):
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusNotFound,

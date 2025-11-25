@@ -8,6 +8,7 @@ const (
 	PackageIdentity = "identity"
 	PackageGroup    = "group"
 	PackageLogin    = "login"
+	PackageMain     = "main"
 	PackageOauth    = "oauth"
 	PackageRegister = "register"
 	PackageScope    = "scope"
@@ -31,4 +32,7 @@ const (
 	ComponentGroup      = "group"
 
 	ServiceKey = "service"
+
+	ServiceIdentity = "shaw"
+	ServiceS2s      = "ran"
 )

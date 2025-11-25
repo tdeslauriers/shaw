@@ -1,11 +1,11 @@
 package authentication
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
-	"shaw/internal/util"
-	"shaw/pkg/scope"
 	"time"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
@@ -13,6 +13,9 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
+	"github.com/tdeslauriers/ran/pkg/scopes"
+	"github.com/tdeslauriers/shaw/internal/util"
+	"github.com/tdeslauriers/shaw/pkg/scope"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -23,43 +26,42 @@ const (
 	IdTokenDuration     time.Duration = 60 // minutes
 )
 
-type Service interface {
-	types.AuthService
-	types.RefreshService[types.UserRefresh]
-	AuthErrService
-}
+// AuthService is an interface for authentication services that validates credentials,
+// gets user scopes, and mints authorization tokens
+type AuthService interface {
+	// ValidateCredentials validates credentials provided by client, whether s2s or user
+	ValidateCredentials(id, secret string) error
 
-// NewService creates an implementation of the user authentication service in the carapace session package.
-func NewService(db data.SqlRepository, s jwt.Signer, i data.Indexer, c data.Cryptor, p provider.S2sTokenProvider, call connect.S2sCaller) Service {
-	return &service{
-		AuthService:    NewAuthService(db, s, i, p, call),
-		RefreshService: NewRefreshService(db, i, c),
-		AuthErrService: NewAuthErrService(),
-	}
-}
+	// GetScopes gets scopes specific to a service for a given identifier.
+	// 'user' parameter can be a username or a client id.
+	GetScopes(ctx context.Context, user, service string) ([]scopes.Scope, error)
 
-var _ Service = (*service)(nil)
-
-type service struct {
-	types.AuthService
-	types.RefreshService[types.UserRefresh]
-	AuthErrService
+	// MintToken builds and signs a jwt token for a given claims struct.
+	// It does not validate or perform checks on these values, it assumes they are valid.
+	MintToken(claims jwt.Claims) (*jwt.Token, error)
 }
 
 // NewAuthService creates an implementation of the user authentication service in the carapace session package.
-func NewAuthService(db data.SqlRepository, s jwt.Signer, i data.Indexer, p provider.S2sTokenProvider, call connect.S2sCaller) types.AuthService {
+func NewAuthService(
+	db data.SqlRepository,
+	s jwt.Signer,
+	i data.Indexer,
+	p provider.S2sTokenProvider,
+	s2s *connect.S2sCaller,
+) AuthService {
+
 	return &authService{
 		db:      db,
 		mint:    s,
 		indexer: i,
-		scopes:  scope.NewScopesService(db, i, p, call),
+		scopes:  scope.NewScopesService(db, i, p, s2s),
 
 		logger: slog.Default().
 			With(slog.String(util.ComponentKey, util.ComponentAuth)),
 	}
 }
 
-var _ types.AuthService = (*authService)(nil)
+var _ AuthService = (*authService)(nil)
 
 // authService is a concrete implementation of the user authentication service in the carapace session package.
 type authService struct {
@@ -108,8 +110,23 @@ func (s *authService) ValidateCredentials(username, password string) error {
 		FROM account
 		WHERE user_index = ?`
 	if err := s.db.SelectRecord(qry, &user, userIndex); err != nil {
-		s.logger.Error(fmt.Sprintf("failed to retrieve user record for %s", username), "err", err.Error())
-		return errors.New(ErrInvalidUsernamePassword)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("user %s not found", username)
+		} else {
+			return fmt.Errorf("failed to query user account for user %s: %v", username, err)
+		}
+	}
+
+	if !user.Enabled {
+		return fmt.Errorf("user %s account is disabled", username)
+	}
+
+	if user.AccountLocked {
+		return fmt.Errorf("user %s account is locked", username)
+	}
+
+	if user.AccountExpired {
+		return fmt.Errorf("user %s account is expired", username)
 	}
 
 	// validate password
@@ -120,30 +137,15 @@ func (s *authService) ValidateCredentials(username, password string) error {
 		return errors.New(ErrInvalidUsernamePassword)
 	}
 
-	if !user.Enabled {
-		s.logger.Error(fmt.Sprintf("user account %s is disabled", username))
-		return fmt.Errorf("user %s account is disabled", username)
-	}
-
-	if user.AccountLocked {
-		s.logger.Error(fmt.Sprintf("user account %s is locked", username))
-		return fmt.Errorf("user %s account is locked", username)
-	}
-
-	if user.AccountExpired {
-		s.logger.Error(fmt.Sprintf("user account %s is expired", username))
-		return fmt.Errorf("user %s account is expired", username)
-	}
-
 	return nil
 }
 
 // GetUserScopes gets the user scopes for user authentication service so that an authcode record can be created.
 // Note: service is not used in this implementation because a user's scopes are not service specific (yet).
-func (s *authService) GetScopes(username, service string) ([]types.Scope, error) {
+func (s *authService) GetScopes(ctx context.Context, username, service string) ([]scopes.Scope, error) {
 
 	// get user's scopes
-	return s.scopes.GetUserScopes(username, service)
+	return s.scopes.GetUserScopes(ctx, username, service)
 }
 
 // MintToken mints the users access token token for user authentication service.

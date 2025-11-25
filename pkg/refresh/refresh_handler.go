@@ -1,13 +1,11 @@
 package refresh
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"shaw/internal/util"
-	"shaw/pkg/authentication"
-	"shaw/pkg/user"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +14,9 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
+	"github.com/tdeslauriers/shaw/internal/util"
+	"github.com/tdeslauriers/shaw/pkg/authentication"
+	"github.com/tdeslauriers/shaw/pkg/user"
 )
 
 // service scopes required
@@ -57,7 +58,15 @@ type handler struct {
 // returns a new access token, and a replacement refresh token
 func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 
-	if r.Method != "POST" {
+	// get telemetry from request
+	tel := connect.ObtainTelemetry(r, h.logger)
+	log := h.logger.With(tel.TelemetryFields()...)
+
+	// add telemetry to context for callstack + service functions
+	ctx := context.WithValue(r.Context(), connect.TelemetryKey, tel)
+
+	if r.Method != http.MethodPost {
+		log.Error("http method not allowed", "err", "only POST http method allowed")
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusMethodNotAllowed,
 			Message:    "only POST http method allowed",
@@ -69,7 +78,7 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	// validate service token
 	svcToken := r.Header.Get("Service-Authorization")
 	if _, err := h.verifier.BuildAuthorized(allowed, svcToken); err != nil {
-		h.logger.Error("login handler failed to authorize service token for /refresh", "err", err.Error())
+		log.Error("login handler failed to authorize service token for /refresh", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
@@ -77,7 +86,7 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	// refresh cmd
 	var cmd types.UserRefreshCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
-		h.logger.Error("failed to decode refresh cmd", "err", err.Error())
+		log.Error("failed to decode refresh cmd", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusBadRequest,
 			Message:    "failed to decode refresh command request body",
@@ -88,7 +97,7 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 
 	// lightweight input validation
 	if err := cmd.ValidateCmd(); err != nil {
-		h.logger.Error("user refresh cmd validation failed", "err", err.Error())
+		log.Error("user refresh cmd validation failed", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnprocessableEntity,
 			Message:    err.Error(),
@@ -98,9 +107,9 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// retreive refresh token
-	refresh, err := h.auth.GetRefreshToken(cmd.RefreshToken)
+	refresh, err := h.auth.GetRefreshToken(ctx, cmd.RefreshToken)
 	if err != nil {
-		h.logger.Error("failed to get user refresh token", "err", err.Error())
+		log.Error("failed to get user refresh token", "err", err.Error())
 		h.auth.HandleServiceErr(err, w)
 		return
 	}
@@ -110,7 +119,7 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 
 	// check if refresh token is expired
 	if refresh.CreatedAt.Add(time.Duration(12 * time.Hour)).Before(now) {
-		h.logger.Error("user refresh token xxxxxx-%s is expired for user %s", refresh.RefreshToken[len(refresh.RefreshToken)-6:], refresh.Username)
+		log.Error("user refresh token xxxxxx-%s is expired for user %s", refresh.RefreshToken[len(refresh.RefreshToken)-6:], refresh.Username)
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    "refresh token is expired",
@@ -122,14 +131,14 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	// get user data
 	u, err := h.user.GetProfile(refresh.Username)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("failed to get user %s data", refresh.Username), "err", err.Error())
+		log.Error(fmt.Sprintf("failed to get user %s data", refresh.Username), "err", err.Error())
 		h.user.HandleServiceErr(err, w)
 		return
 	}
 
 	// check if user is (still) active
 	if active, err := h.user.IsActive(u); !active {
-		h.logger.Error(fmt.Sprintf("user %s is not active", u.Username), "err", err.Error())
+		log.Error(fmt.Sprintf("user %s is not active", u.Username), "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    err.Error(),
@@ -141,7 +150,7 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	// set up fields for new access token
 	jti, err := uuid.NewRandom()
 	if err != nil {
-		h.logger.Error("failed to generate jti for access token", "err", err.Error())
+		log.Error("failed to generate jti for access token", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
 			Message:    "failed to generate jti for access token",
@@ -165,7 +174,7 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	// mint jwt access token
 	accessToken, err := h.auth.MintToken(accessClaims)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("failed to mint new access token for refresh uuid %s. username %s", refresh.Uuid, u.Username), "err", err.Error())
+		log.Error(fmt.Sprintf("failed to mint new access token for refresh uuid %s. username %s", refresh.Uuid, u.Username), "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
 			Message:    "failed to mint new access token",
@@ -180,7 +189,7 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	// generate new refresh token
 	refreshToken, err := uuid.NewRandom()
 	if err != nil {
-		h.logger.Error("failed to generate a new refresh token", "err", err.Error())
+		log.Error("failed to generate a new refresh token", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
 			Message:    "failed to generate a new refresh token",
@@ -202,7 +211,7 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	// persist new refresh token
 	go func(r types.UserRefresh) {
 		if err := h.auth.PersistRefresh(r); err != nil {
-			h.logger.Error(fmt.Sprintf("failed to persist new refresh token for user %s", u.Username), "err", err.Error())
+			log.Error(fmt.Sprintf("failed to persist new refresh token for user %s", u.Username), "err", err.Error())
 			return
 		}
 	}(persist)
@@ -210,7 +219,7 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	// opportunistically delete old refresh token
 	go func(r types.UserRefresh) {
 		if err := h.auth.DestroyRefresh(r.RefreshToken); err != nil {
-			h.logger.Error(fmt.Sprintf("failed to destroy old refresh uuid %s for user %s", r.Uuid, u.Username), "err", err.Error())
+			log.Error(fmt.Sprintf("failed to destroy old refresh uuid %s for user %s", r.Uuid, u.Username), "err", err.Error())
 			return
 		}
 	}(*refresh)
@@ -226,10 +235,12 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		RefreshExpires: data.CustomTime{Time: time.Unix(refresh.CreatedAt.Add(authentication.RefreshDuration*time.Hour).Unix(), 0).UTC()},
 	}
 
+	log.Info(fmt.Sprintf("successfully refreshed access token for user %s", u.Username))
+
 	// respond with success + new tokens
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(authz); err != nil {
-		h.logger.Error("failed to json encode refresh response body object", "err", err.Error())
+		log.Error("failed to json encode refresh response body object", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
 			Message:    "failed to encode response",
@@ -242,7 +253,12 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 // HandleDestroy handles the destroy refresh token request from users
 func (h *handler) HandleDestroy(w http.ResponseWriter, r *http.Request) {
 
-	if r.Method != "POST" {
+	// get telemetry from request
+	tel := connect.ObtainTelemetry(r, h.logger)
+	log := h.logger.With(tel.TelemetryFields()...)
+
+	if r.Method != http.MethodPost {
+		log.Error("http method not allowed", "err", "only POST http method allowed")
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusMethodNotAllowed,
 			Message:    "only POST http method allowed",
@@ -254,7 +270,7 @@ func (h *handler) HandleDestroy(w http.ResponseWriter, r *http.Request) {
 	// validate service token
 	svcToken := r.Header.Get("Service-Authorization")
 	if _, err := h.verifier.BuildAuthorized(allowed, svcToken); err != nil {
-		h.logger.Error("login handler failed to authorize service token for /refresh/destroy", "err", err.Error())
+		log.Error("login handler failed to authorize service token", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
@@ -262,10 +278,10 @@ func (h *handler) HandleDestroy(w http.ResponseWriter, r *http.Request) {
 	// destory cmd
 	var cmd types.DestroyRefreshCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
-		h.logger.Error("failed to decode refresh cmd", "err", err.Error())
+		log.Error("failed to json decode refresh cmd", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusBadRequest,
-			Message:    "failed to decode destroy refresh command request body",
+			Message:    "failed to json decode destroy refresh command request body",
 		}
 		e.SendJsonErr(w)
 		return
@@ -273,7 +289,7 @@ func (h *handler) HandleDestroy(w http.ResponseWriter, r *http.Request) {
 
 	// lightweight input validation
 	if err := cmd.ValidateCmd(); err != nil {
-		h.logger.Error("user refresh cmd validation failed", "err", err.Error())
+		log.Error("user refresh cmd validation failed", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnprocessableEntity,
 			Message:    err.Error(),

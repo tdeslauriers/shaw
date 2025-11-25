@@ -1,24 +1,22 @@
 package user
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"shaw/internal/util"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
+	"github.com/tdeslauriers/shaw/internal/util"
 )
 
 // UserHandler interface for user request handling from downstream services
 type UserHandler interface {
 
-	// HandleUsers handles the request for all users
+	// HandleUsers handles requests against the /users endpoint
 	HandleUsers(w http.ResponseWriter, r *http.Request)
-
-	// HandleUser handles the request for a single user
-	HandleUser(w http.ResponseWriter, r *http.Request)
 }
 
 // NewUserHandler creates a new UserHandler interface by returning a pointer to a new concrete implementation of the UserHandler interface
@@ -44,17 +42,43 @@ type userHandler struct {
 	logger *slog.Logger
 }
 
-// HandleUsers handles the request for all users
+// HandleUser handles the requests for a single user
 func (h *userHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 
-	if r.Method != "GET" {
+	// get telemetry from request
+	tel := connect.ObtainTelemetry(r, h.logger)
+	log := h.logger.With(tel.TelemetryFields()...)
+
+	switch r.Method {
+	case http.MethodGet:
+
+		// get slug from path if it exists
+		slug := r.PathValue("slug")
+		if slug == "" {
+
+			h.getUsers(w, r, log)
+			return
+		} else {
+
+			h.getUser(w, r, tel, log)
+			return
+		}
+	case http.MethodPut:
+		h.updateUser(w, r, tel, log)
+		return
+	default:
+		log.Error(fmt.Sprintf("unsupported method %s for endpoint %s", r.Method, r.URL.Path))
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusMethodNotAllowed,
-			Message:    "only POST http method allowed",
+			Message:    fmt.Sprintf("unsupported method %s for endpoint %s", r.Method, r.URL.Path),
 		}
 		e.SendJsonErr(w)
 		return
 	}
+}
+
+// getUsers handles the request for all users
+func (h *userHandler) getUsers(w http.ResponseWriter, r *http.Request, log *slog.Logger) {
 
 	// get correct scopes
 	var requiredScopes []string
@@ -66,35 +90,43 @@ func (h *userHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
-	if _, err := h.s2sVerifier.BuildAuthorized(requiredScopes, svcToken); err != nil {
-		h.logger.Error(fmt.Sprintf("/users handler failed to authorize service token: %s", err.Error()))
+	authedSvc, err := h.s2sVerifier.BuildAuthorized(requiredScopes, svcToken)
+	if err != nil {
+		log.Error("failed to authorize service token", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
 
 	// check if iamVerifier is nil, if not nil, validate user iam token
+	var authedUser *jwt.Token
 	if h.iamVerifier != nil {
 		accessToken := r.Header.Get("Authorization")
-		if _, err := h.iamVerifier.BuildAuthorized(requiredScopes, accessToken); err != nil {
-			h.logger.Error(fmt.Sprintf("/users handler failed to authorize iam token: %s", err.Error()))
+		authorized, err := h.iamVerifier.BuildAuthorized(requiredScopes, accessToken)
+		if err != nil {
+			log.Error("failed to authorize iam token", "err", err.Error())
 			connect.RespondAuthFailure(connect.User, err, w)
 			return
 		}
+		authedUser = authorized
 	}
 
 	// get users from user service
 	users, err := h.service.GetUsers()
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("/users handler failed to get users: %s", err.Error()))
+		log.Error("failed to get users", "err", err.Error())
 		h.service.HandleServiceErr(err, w)
 		return
 	}
+
+	log.Info(fmt.Sprintf("successfully retrieved %d users", len(users)),
+		"requesting_service", authedSvc.Claims.Subject,
+		"actor", authedUser.Claims.Subject)
 
 	// send user records response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(users); err != nil {
-		h.logger.Error(fmt.Sprintf("/users handler failed to json encode users: %s", err.Error()))
+		log.Error("failed to json encode users", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
 			Message:    "failed to json encode users",
@@ -102,32 +134,13 @@ func (h *userHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 		e.SendJsonErr(w)
 		return
 	}
-
 }
 
-// HandleUser handles the requests for a single user
-func (h *userHandler) HandleUser(w http.ResponseWriter, r *http.Request) {
+// getUser handles the get request for a single user record by user slug
+func (h *userHandler) getUser(w http.ResponseWriter, r *http.Request, tel *connect.Telemetry, log *slog.Logger) {
 
-	switch r.Method {
-	case http.MethodGet:
-		h.handleGetUser(w, r)
-		return
-	case http.MethodPost:
-		h.handleUpdateUser(w, r)
-		return
-	default:
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusMethodNotAllowed,
-			Message:    "only GET and POST http methods allowed",
-		}
-		e.SendJsonErr(w)
-		return
-	}
-
-}
-
-// handleGetUser handles the get request for a single user record by user slug
-func (h *userHandler) handleGetUser(w http.ResponseWriter, r *http.Request) {
+	// add telemetry to context for downstream calls + service functions
+	ctx := context.WithValue(r.Context(), connect.TelemetryKey, tel)
 
 	// get correct scopes
 	var requiredScopes []string
@@ -139,73 +152,84 @@ func (h *userHandler) handleGetUser(w http.ResponseWriter, r *http.Request) {
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
-	if _, err := h.s2sVerifier.BuildAuthorized(requiredScopes, svcToken); err != nil {
-		h.logger.Error(fmt.Sprintf("/users/slug get-handler failed to authorize service token: %s", err.Error()))
+	authedSvc, err := h.s2sVerifier.BuildAuthorized(requiredScopes, svcToken)
+	if err != nil {
+		log.Error("failed to authorize service token", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
 
 	// check if iamVerifier is nil, if not nil, validate user iam token
+	var authedUser *jwt.Token
 	if h.iamVerifier != nil {
 		accessToken := r.Header.Get("Authorization")
-		if _, err := h.iamVerifier.BuildAuthorized(requiredScopes, accessToken); err != nil {
-			h.logger.Error(fmt.Sprintf("/users/slug get-handler failed to authorize iam token: %s", err.Error()))
+		authorized, err := h.iamVerifier.BuildAuthorized(requiredScopes, accessToken)
+		if err != nil {
+			log.Error("failed to authorize iam token", "err", err.Error())
 			connect.RespondAuthFailure(connect.User, err, w)
 			return
 		}
+		authedUser = authorized
 	}
 
 	// get the url slug from the request
 	slug, err := connect.GetValidSlug(r)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("failed to get valid slug from request: %s", err.Error()))
+		log.Error("failed to get valid slug from request", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusBadRequest,
-			Message:    "invalid service client slug",
+			Message:    err.Error(),
 		}
 		e.SendJsonErr(w)
 		return
 	}
 
 	// get user from user service
-	user, err := h.service.GetUser(slug)
+	user, err := h.service.GetUser(ctx, slug)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("/users/%s get-handler failed to get user: %s", slug, err.Error()))
+		log.Error(fmt.Sprintf("failed to get user %s", slug), "err", err.Error())
 		h.service.HandleServiceErr(err, w)
 		return
 	}
 
+	log.Info(fmt.Sprintf("successfully retrieved user %s", slug),
+		"requesting_service", authedSvc.Claims.Subject,
+		"actor", authedUser.Claims.Subject)
+
 	// send user records response
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(user); err != nil {
-		h.logger.Error(fmt.Sprintf("/users/%s get-handler failed to json encode user: %s", slug, err.Error()))
+		log.Error(fmt.Sprintf("failed to encode user %s data to json", slug), "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
-			Message:    "failed to encode user",
+			Message:    "failed to encode user data to json",
 		}
 		e.SendJsonErr(w)
 		return
 	}
 }
 
-// handleUpdateUser handles the update request for a single user record by user slug
+// updateUser handles the update request for a single user record by user slug
 // takes in the subject of an authorized token to log the user update
-func (h *userHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
+func (h *userHandler) updateUser(w http.ResponseWriter, r *http.Request, tel *connect.Telemetry, log *slog.Logger) {
+
+	// add telemetry to context for downstream calls + service functions
+	ctx := context.WithValue(r.Context(), connect.TelemetryKey, tel)
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
-	if _, err := h.s2sVerifier.BuildAuthorized(updateUserAllowed, svcToken); err != nil {
-		h.logger.Error(fmt.Sprintf("/users/slug get-handler failed to authorize service token: %s", err.Error()))
+	authedSvc, err := h.s2sVerifier.BuildAuthorized(updateUserAllowed, svcToken)
+	if err != nil {
+		log.Error("failed to authorize service token", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
 
 	// check if iamVerifier is nil, if not nil, validate user iam token
-
 	accessToken := r.Header.Get("Authorization")
 	authorized, err := h.iamVerifier.BuildAuthorized(updateUserAllowed, accessToken)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("/users/slug get-handler failed to authorize iam token: %s", err.Error()))
+		log.Error("failed to authorize iam token", "err", err.Error())
 		connect.RespondAuthFailure(connect.User, err, w)
 		return
 	}
@@ -213,10 +237,10 @@ func (h *userHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	// get the url slug from the request
 	slug, err := connect.GetValidSlug(r)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("failed to get valid slug from request: %s", err.Error()))
+		log.Error("failed to get valid slug from request", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusBadRequest,
-			Message:    "invalid service client slug",
+			Message:    err.Error(),
 		}
 		e.SendJsonErr(w)
 		return
@@ -225,10 +249,10 @@ func (h *userHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	// update cmd record
 	var cmd Profile
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
-		h.logger.Error(fmt.Sprintf("/users/%s post-handler failed to decode user: %s", slug, err.Error()))
+		log.Error(fmt.Sprintf("failed to decode update cmd for user %s", slug), "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusBadRequest,
-			Message:    "failed to decode user",
+			Message:    err.Error(),
 		}
 		e.SendJsonErr(w)
 		return
@@ -236,7 +260,7 @@ func (h *userHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	// validate user fields in request body
 	if err := cmd.ValidateCmd(); err != nil {
-		h.logger.Error(fmt.Sprintf("/users/%s post-handler failed to validate user: %s", slug, err.Error()))
+		log.Error(fmt.Sprintf("update cmd validation failed for user %s", slug), "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnprocessableEntity,
 			Message:    err.Error(),
@@ -245,64 +269,96 @@ func (h *userHandler) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// get user data for username/user index and audit log
-	user, err := h.service.GetUser(slug)
+	// get record data for username/record index and audit log
+	record, err := h.service.GetUser(ctx, slug)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("/users/%s post-handler failed to get user: %s", slug, err.Error()))
+		log.Error(fmt.Sprintf("failed to get user record %s for update", slug), "err", err.Error())
 		h.service.HandleServiceErr(err, w)
 		return
 	}
 
 	// prepare update model
 	updated := Profile{
-		Id:             user.Id,       // not used by update service
-		Username:       user.Username, // needed for update user by user_index -> must not come from user input
+		Id:             record.Id,       // not used by update service
+		Username:       record.Username, // needed for update user by user_index -> must not come from user input
 		Firstname:      cmd.Firstname,
 		Lastname:       cmd.Lastname,
 		BirthDate:      cmd.BirthDate,
-		Slug:           user.Slug,      // not used by update service
-		CreatedAt:      user.CreatedAt, // not used by update service
+		Slug:           record.Slug,      // not used by update service
+		CreatedAt:      record.CreatedAt, // not used by update service
 		Enabled:        cmd.Enabled,
 		AccountExpired: cmd.AccountExpired,
 		AccountLocked:  cmd.AccountLocked,
 	}
 
 	if err := h.service.Update(&updated); err != nil {
-		h.logger.Error(fmt.Sprintf("/users/%s post-handler failed to update user: %s", slug, err.Error()))
+		log.Error(fmt.Sprintf("failed to update user %s", slug), "err", err.Error())
 		h.service.HandleServiceErr(err, w)
 		return
 	}
 
 	// audit log
-	if user.Firstname != cmd.Firstname {
-		h.logger.Info(fmt.Sprintf("%s updated user %s's firstname from %s to %s", authorized.Claims.Subject, user.Username, user.Firstname, cmd.Firstname))
+	var updatedFields []any
+	if record.Firstname != updated.Firstname {
+		updatedFields = append(updatedFields,
+			slog.String("previous_firstname", record.Firstname),
+			slog.String("updated_firstname", updated.Firstname),
+		)
 	}
 
-	if user.Lastname != cmd.Lastname {
-		h.logger.Info(fmt.Sprintf("%s updated user %s's lastname from %s to %s", authorized.Claims.Subject, user.Username, user.Lastname, cmd.Lastname))
+	if record.Lastname != updated.Lastname {
+		updatedFields = append(updatedFields,
+			slog.String("previous_lastname", record.Lastname),
+			slog.String("updated_lastname", updated.Lastname),
+		)
 	}
 
-	if user.BirthDate != cmd.BirthDate {
-		h.logger.Info(fmt.Sprintf("%s updated user %s's birthdate from %s to %s", authorized.Claims.Subject, user.Username, user.BirthDate, cmd.BirthDate))
+	if record.BirthDate != updated.BirthDate {
+		updatedFields = append(updatedFields,
+			slog.String("previous_birthdate", record.BirthDate),
+			slog.String("updated_birthdate", updated.BirthDate),
+		)
 	}
 
-	if user.Enabled != cmd.Enabled {
-		h.logger.Info(fmt.Sprintf("%s updated user %s's enabled status from %t to %t", authorized.Claims.Subject, user.Username, user.Enabled, cmd.Enabled))
+	if record.Enabled != updated.Enabled {
+		updatedFields = append(updatedFields,
+			slog.Bool("previous_enabled", record.Enabled),
+			slog.Bool("updated_enabled", updated.Enabled),
+		)
 	}
 
-	if user.AccountExpired != cmd.AccountExpired {
-		h.logger.Info(fmt.Sprintf("%s updated user %s's account expired status from %t to %t", authorized.Claims.Subject, user.Username, user.AccountExpired, cmd.AccountExpired))
+	if record.AccountExpired != updated.AccountExpired {
+		updatedFields = append(updatedFields,
+			slog.Bool("previous_account_expired", record.AccountExpired),
+			slog.Bool("updated_account_expired", updated.AccountExpired),
+		)
 	}
 
-	if user.AccountLocked != cmd.AccountLocked {
-		h.logger.Info(fmt.Sprintf("%s updated user %s's account locked status from %t to %t", authorized.Claims.Subject, user.Username, user.AccountLocked, cmd.AccountLocked))
+	if record.AccountLocked != updated.AccountLocked {
+		updatedFields = append(updatedFields,
+			slog.Bool("previous_account_locked", record.AccountLocked),
+			slog.Bool("updated_account_locked", updated.AccountLocked),
+		)
+	}
+
+	if len(updatedFields) > 0 {
+		log = log.With(updatedFields...)
+		log.Info(fmt.Sprintf("successfully updated user %s", slug),
+			"requesting_service", authedSvc.Claims.Subject,
+			"actor", authorized.Claims.Subject,
+		)
+	} else {
+		log.Warn(fmt.Sprintf("user %s update executed successfully, but no fields were changed", slug),
+			"requesting_service", authedSvc.Claims.Subject,
+			"actor", authorized.Claims.Subject,
+		)
 	}
 
 	// send user record response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(updated); err != nil {
-		h.logger.Error(fmt.Sprintf("/users/%s post-handler failed to json encode updated user: %s", slug, err.Error()))
+		log.Error(fmt.Sprintf("failed to json encode updated user %s", slug), "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
 			Message:    "failed to json encode updated user",

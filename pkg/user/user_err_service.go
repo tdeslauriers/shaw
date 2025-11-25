@@ -26,22 +26,22 @@ type userErrService struct{}
 // HandleServiceErr handles errors that occur during user service operations and sends a json error response.
 func (s *userErrService) HandleServiceErr(err error, w http.ResponseWriter) {
 	switch {
-	case strings.Contains(err.Error(), ErrUserNotFound):
-	case strings.Contains(err.Error(), ErrUserDisabled):
-	case strings.Contains(err.Error(), ErrUserLocked):
-	case strings.Contains(err.Error(), ErrUserExpired):
-	case strings.Contains(err.Error(), ErrInvalidPassword):
+	case strings.Contains(err.Error(), ErrUserNotFound),
+		strings.Contains(err.Error(), ErrUserDisabled),
+		strings.Contains(err.Error(), ErrUserLocked),
+		strings.Contains(err.Error(), ErrUserExpired),
+		strings.Contains(err.Error(), ErrInvalidPassword):
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    err.Error(),
 		}
 		e.SendJsonErr(w)
 		return
-	case strings.Contains(err.Error(), ErrInvalidUserData):
-	case strings.Contains(err.Error(), ErrPasswordUsedPreviously):
-	case strings.Contains(err.Error(), ErrNewConfirmPwMismatch):
-	case strings.Contains(err.Error(), ErrInvalidScopeSlug):
-	case strings.Contains(err.Error(), ErrScopeSlugDoesNotExist):
+	case strings.Contains(err.Error(), ErrInvalidUserData),
+		strings.Contains(err.Error(), ErrPasswordUsedPreviously),
+		strings.Contains(err.Error(), ErrNewConfirmPwMismatch),
+		strings.Contains(err.Error(), ErrInvalidScopeSlug),
+		strings.Contains(err.Error(), ErrScopeSlugDoesNotExist):
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnprocessableEntity,
 			Message:    err.Error(),

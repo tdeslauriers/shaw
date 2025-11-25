@@ -1,10 +1,10 @@
 package authentication
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -30,7 +30,7 @@ type refresh struct {
 }
 
 // GetRefreshToken retreives a refresh token by recreating the blind index, selecting, and then decrypting the record.
-func (r *refresh) GetRefreshToken(refreshToken string) (*types.UserRefresh, error) {
+func (r *refresh) GetRefreshToken(ctx context.Context, refreshToken string) (*types.UserRefresh, error) {
 
 	// light validation: redundant check, but good practice
 	if len(refreshToken) < 16 || len(refreshToken) > 64 {
@@ -76,27 +76,39 @@ func (r *refresh) GetRefreshToken(refreshToken string) (*types.UserRefresh, erro
 	)
 
 	wg.Add(4)
-	go r.decrypt(refresh.ClientId, ErrDecryptClientId, &decryptedClientId, errChan, &wg)
-	go r.decrypt(refresh.RefreshToken, ErrDecryptRefresh, &decryptedRefresh, errChan, &wg)
-	go r.decrypt(refresh.Username, ErrDecryptUsername, &decryptedUsername, errChan, &wg)
+	go r.decrypt(
+		refresh.ClientId,
+		ErrDecryptClientId,
+		&decryptedClientId,
+		errChan,
+		&wg,
+	)
+	go r.decrypt(
+		refresh.RefreshToken,
+		ErrDecryptRefresh,
+		&decryptedRefresh,
+		errChan,
+		&wg,
+	)
+	go r.decrypt(
+		refresh.Username,
+		ErrDecryptUsername,
+		&decryptedUsername,
+		errChan,
+		&wg,
+	)
 	go r.decrypt(refresh.Scopes, ErrDecryptScopes, &decryptedScopes, errChan, &wg)
 
 	wg.Wait()
 	close(errChan)
 
 	// consolidate errors
-	lenErrs := len(errChan)
-	if lenErrs > 0 {
-		var builder strings.Builder
-		count := 0
-		for e := range errChan {
-			builder.WriteString(e.Error())
-			if count < lenErrs-1 {
-				builder.WriteString("; ")
-			}
-			count++
+	if len(errChan) > 0 {
+		var errs []error
+		for err := range errChan {
+			errs = append(errs, err)
 		}
-		return nil, fmt.Errorf("failed decryption process for refresh token id %s - xxxxxx-%s: %s", refresh.Uuid, refreshToken[len(refreshToken)-6:], builder.String())
+		return nil, fmt.Errorf("failed to decrypt refresh token fields for user %s: %v", string(decryptedUsername), errors.Join(errs...))
 	}
 
 	return &types.UserRefresh{
@@ -156,33 +168,63 @@ func (r *refresh) PersistRefresh(ur types.UserRefresh) error {
 
 	// encrypt client id, refresh token, and username
 	wgRecord.Add(4)
-	go r.encrypt(ur.ClientId, fmt.Sprintf("%s %s", ErrEncryptClientId, ur.ClientId), &encryptedClientId, errChan, &wgRecord)
-	go r.encrypt(ur.RefreshToken, fmt.Sprintf("%s xxxxxx-%s", ErrEncryptRefresh, ur.RefreshToken[len(ur.RefreshToken)-6:]), &encryptedRefresh, errChan, &wgRecord)
-	go r.encrypt(ur.Username, fmt.Sprintf("%s %s", ErrEncryptUsername, ur.Username), &encryptedUsername, errChan, &wgRecord)
-	go r.encrypt(ur.Scopes, fmt.Sprintf("%s for user %s", ErrEncryptScopes, ur.Username), &encryptedScopes, errChan, &wgRecord)
+	go r.encrypt(
+		ur.ClientId,
+		fmt.Sprintf("%s %s", ErrEncryptClientId, ur.ClientId),
+		&encryptedClientId,
+		errChan,
+		&wgRecord,
+	)
+	go r.encrypt(
+		ur.RefreshToken,
+		fmt.Sprintf("%s xxxxxx-%s", ErrEncryptRefresh, ur.RefreshToken[len(ur.RefreshToken)-6:]),
+		&encryptedRefresh,
+		errChan,
+		&wgRecord,
+	)
+	go r.encrypt(
+		ur.Username,
+		fmt.Sprintf("%s %s", ErrEncryptUsername, ur.Username),
+		&encryptedUsername,
+		errChan,
+		&wgRecord,
+	)
+	go r.encrypt(
+		ur.Scopes,
+		fmt.Sprintf("%s for user %s", ErrEncryptScopes, ur.Username),
+		&encryptedScopes,
+		errChan,
+		&wgRecord,
+	)
 
 	// create blind indices for refresh and username
 	wgRecord.Add(2)
-	go r.index(ur.RefreshToken, fmt.Sprintf("%s for refresh token xxxxxx-%s", ErrGenerateIndex, ur.RefreshToken[len(ur.RefreshToken)-6:]), &refreshIndex, errChan, &wgRecord)
-	go r.index(ur.Username, fmt.Sprintf("%s for username %s", ErrGenerateIndex, ur.Username), &usernameIndex, errChan, &wgRecord)
+	go r.index(
+		ur.RefreshToken,
+		fmt.Sprintf("%s for refresh token xxxxxx-%s", ErrGenerateIndex, ur.RefreshToken[len(ur.RefreshToken)-6:]),
+		&refreshIndex,
+		errChan,
+		&wgRecord,
+	)
+	go r.index(
+		ur.Username,
+		fmt.Sprintf("%s for username %s", ErrGenerateIndex, ur.Username),
+		&usernameIndex,
+		errChan,
+		&wgRecord,
+	)
 
 	// wait for all go routines to finish
 	wgRecord.Wait()
 	close(errChan)
 
 	// consolidate errors
-	lenErrs := len(errChan)
-	if lenErrs > 0 {
-		var builder strings.Builder
-		count := 0
-		for e := range errChan {
-			builder.WriteString(e.Error())
-			if count < lenErrs-1 {
-				builder.WriteString("; ")
-			}
-			count++
+	if len(errChan) > 0 {
+		var errs []error
+		for err := range errChan {
+			errs = append(errs, err)
 		}
-		return fmt.Errorf("failed to persist refresh token: %s", builder.String())
+		return fmt.Errorf("failed to encrypte refresh token fields for user %s: %v", ur.Username, errors.Join(errs...))
 	}
 
 	// update refresh struct

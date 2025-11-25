@@ -1,16 +1,18 @@
 package user
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"shaw/internal/util"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/profile"
 	"github.com/tdeslauriers/carapace/pkg/validate"
+	"github.com/tdeslauriers/shaw/internal/util"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -19,7 +21,7 @@ type ResetService interface {
 
 	// ResetPassword updates the users password in the database.
 	// Note: this will check if the user exists, is valid, and if the current password is correct
-	ResetPassword(username string, cmd profile.ResetCmd) error
+	ResetPassword(ctx context.Context, username string, cmd profile.ResetCmd) error
 }
 
 // NewResetService creates a new ResetService interface by returning a pointer to a new concrete implementation
@@ -29,8 +31,8 @@ func NewResetService(db data.SqlRepository, i data.Indexer) ResetService {
 		index: i,
 
 		logger: slog.Default().
-			With(slog.String(util.ComponentKey, util.ComponentReset)).
-			With(slog.String(util.ServiceKey, util.ServiceName)),
+			With(slog.String(util.PackageKey, util.PackageUser)).
+			With(slog.String(util.ComponentKey, util.ComponentReset)),
 	}
 }
 
@@ -45,7 +47,17 @@ type resetService struct {
 }
 
 // ResetPassword is the concrete implementation of the method which updates the users password in the database.
-func (s *resetService) ResetPassword(username string, cmd profile.ResetCmd) error {
+func (s *resetService) ResetPassword(ctx context.Context, username string, cmd profile.ResetCmd) error {
+
+	// create local logger with telemetry from context
+	log := s.logger
+
+	// get tlemetry from context
+	if tel, ok := ctx.Value(connect.TelemetryKey).(*connect.Telemetry); ok && tel != nil {
+		log = log.With(tel.TelemetryFields()...)
+	} else {
+		log.Warn("no telemetry found in context for reset password request")
+	}
 
 	// lightweight input validation of username
 	if len(username) < validate.EmailMin || len(username) > validate.EmailMax {
@@ -90,23 +102,19 @@ func (s *resetService) ResetPassword(username string, cmd profile.ResetCmd) erro
 	if err := s.db.SelectRecords(qry, &history, index); err != nil {
 		if err == sql.ErrNoRows {
 			// this should never happen: pulled from token
-			s.logger.Error(fmt.Sprintf("user %s not found", username))
 			return fmt.Errorf("%s: %s", ErrUserNotFound, username)
 		}
-		s.logger.Error(fmt.Sprintf("password reset failed: failed to retrieve user %s data", username), "err", err.Error())
 		return fmt.Errorf("failed to retrieve user %s data: %v", username, err)
 	}
 
 	// check that records exist to evaluate.
 	// this should not be possible.
 	if len(history) < 1 {
-		s.logger.Error(fmt.Sprintf("password reset failed: no password history records found for user: %s", username))
 		return fmt.Errorf("no password history records found for user: %s", username)
 	}
 
 	// check if user is enabled, not locked, and not expired before hashing operations
 	if !history[0].Enabled {
-
 		return fmt.Errorf("%s: %s", ErrUserDisabled, username)
 	}
 
@@ -122,32 +130,28 @@ func (s *resetService) ResetPassword(username string, cmd profile.ResetCmd) erro
 	current := []byte(cmd.CurrentPassword)
 	currentHash := []byte(history[0].CurrentPassword)
 	if err := bcrypt.CompareHashAndPassword(currentHash, current); err != nil {
-		return fmt.Errorf("%s for user %s", ErrInvalidPassword, username)
+		return fmt.Errorf("%s for user %s: %v", ErrInvalidPassword, username, err)
 	}
 
 	// hash new password
 	newHash, err := bcrypt.GenerateFromPassword([]byte(cmd.NewPassword), 13)
 	if err != nil {
-		s.logger.Error(fmt.Sprintf("password reset failed: failed to hash new password for user %s", username), "err", err.Error())
-		return fmt.Errorf("failed to hash new password")
+		return fmt.Errorf("failed to hash new password for user %s: %v", username, err)
 	}
 
 	// validate new password is not the same as any previous password
 	for _, h := range history {
 		// If no error, then a match => password has already been used.
 		if err := bcrypt.CompareHashAndPassword([]byte(h.HistoryPassword), []byte(cmd.NewPassword)); err == nil {
-			s.logger.Error(fmt.Sprintf("password reset failed: user %s's new %s: %s", username, ErrPasswordUsedPreviously, h.Updated.Format("2006-01-02 15:04:05")))
-			return fmt.Errorf("%s: %s", ErrPasswordUsedPreviously, h.Updated.Format("2006-01-02 15:04:05"))
+			return fmt.Errorf("user %s's new %s: %s", username, ErrPasswordUsedPreviously, h.Updated.Format("2006-01-02 15:04:05"))
 		}
 	}
 
 	// update password in account table
 	qry = `UPDATE account SET password = ? WHERE user_index = ?`
 	if err := s.db.UpdateRecord(qry, string(newHash), index); err != nil {
-		s.logger.Error(fmt.Sprintf("password reset failed: failed to update user %s's password", username), "err", err.Error())
-		return fmt.Errorf("failed to update user %s's password", username)
+		return fmt.Errorf("failed to update user %s's password: %v", username, err)
 	}
-	s.logger.Info(fmt.Sprintf("successfully updated user %s's password in account record", username))
 
 	// insert new password history record into password_history table
 	// dont wait for success, return immediately
@@ -155,7 +159,7 @@ func (s *resetService) ResetPassword(username string, cmd profile.ResetCmd) erro
 
 		id, err := uuid.NewRandom()
 		if err != nil {
-			s.logger.Error(fmt.Sprintf("password reset failed: failed to generate uuid for user %s's new password history record", username), "err", err.Error())
+			log.Error(fmt.Sprintf("password reset failed: failed to generate uuid for user %s's new password history record", username), "err", err.Error())
 			return
 		}
 
@@ -168,10 +172,11 @@ func (s *resetService) ResetPassword(username string, cmd profile.ResetCmd) erro
 
 		qry = `INSERT INTO password_history (uuid, password, updated, account_uuid) VALUES (?, ?, ?, ?)`
 		if err := s.db.InsertRecord(qry, record); err != nil {
-			s.logger.Error(fmt.Sprintf("password reset failed: failed to insert new password history record for user %s", username), "err", err.Error())
+			log.Error(fmt.Sprintf("password reset failed: failed to insert new password history record for user %s", username), "err", err.Error())
 			return
 		}
-		s.logger.Info(fmt.Sprintf("successfully updated user %s's password history", username))
+
+		log.Info(fmt.Sprintf("successfully updated user %s's password history", username))
 	}()
 
 	return nil

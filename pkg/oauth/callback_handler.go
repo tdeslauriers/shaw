@@ -1,13 +1,10 @@
-package callback
+package oauth
 
 import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"shaw/internal/util"
-	"shaw/pkg/authentication"
-	"shaw/pkg/oauth"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +13,8 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
+	"github.com/tdeslauriers/shaw/internal/util"
+	"github.com/tdeslauriers/shaw/pkg/authentication"
 )
 
 const (
@@ -25,33 +24,56 @@ const (
 // service scopes required
 var allowed []string = []string{"w:shaw:profile:*"}
 
+// Handler is the interface for handling the callback request from the client after
+// the user has authenticated, exchanging the auth code for the access token and
+// id token, and returning them to the client
 type Handler interface {
+
+	// HandleCallback handles the callback request from the client after the user has
+	// authenticated, exchanging the auth code for the access token and id token, and
+	// returning them to the client
 	HandleCallback(w http.ResponseWriter, r *http.Request)
 }
 
-func NewHandler(v jwt.Verifier, u authentication.Service, o oauth.Service) Handler {
+// NewHandler creates a new Handler and returns and underlying pointer to a
+// concrete implementation of the Handler interface
+func NewHandler(s Service, u authentication.Service, v jwt.Verifier) Handler {
 	return &handler{
-		s2sVerifier: v,
+		oauth:       s,
 		auth:        u,
-		oauth:       o,
+		s2sVerifier: v,
 
-		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentCallback)),
+		logger: slog.Default().
+			With(slog.String(util.PackageKey, util.PackageOauth)).
+			With(slog.String(util.ComponentKey, util.ComponentCallback)),
 	}
 }
 
 var _ Handler = (*handler)(nil)
 
+// handler is the concrete implementation of the Handler interface which
+// handles the callback request from the client after the user has authenticated, exchanging
+// the auth code for the access token and id token, and returning them to the client
 type handler struct {
-	s2sVerifier jwt.Verifier
+	oauth       Service
 	auth        authentication.Service
-	oauth       oauth.Service
+	s2sVerifier jwt.Verifier
 
 	logger *slog.Logger
 }
 
+// HandleCallback implements the Handler interface, handling the callback request
+// from the client after the user has authenticated, exchanging the auth code for the
+// access token and id token, and returning them to the client.
 func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
-	if r.Method != "POST" {
+	// get telemetry from request
+	tel := connect.ObtainTelemetry(r, h.logger)
+	log := h.logger.With(tel.TelemetryFields()...)
+
+	// validate method
+	if r.Method != http.MethodPost {
+		log.Error("method not allowed", "err", "only POST http method allowed")
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusMethodNotAllowed,
 			Message:    "only POST http method allowed",
@@ -63,7 +85,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
 	if _, err := h.s2sVerifier.BuildAuthorized(allowed, svcToken); err != nil {
-		h.logger.Error("callback handler failed to authorize service token", "err", err.Error())
+		log.Error("failed to authorize service token", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
@@ -71,7 +93,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// decode request body: auth code, state, nonce, client id, redirect url
 	var cmd types.AccessTokenCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
-		h.logger.Error("failed to decode request body", "err", err.Error())
+		log.Error("failed to decode request body", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusBadRequest,
 			Message:    "failed to decode callback command request body",
@@ -82,10 +104,10 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	// lightweight validation: check for empty fields or too long
 	if err := cmd.ValidateCmd(); err != nil {
-		h.logger.Error("failed to validate callback command request body", "err", err.Error())
+		log.Error("failed to validate callback command request body", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnprocessableEntity,
-			Message:    "failed to validate callback command request body",
+			Message:    err.Error(),
 		}
 		e.SendJsonErr(w)
 		return
@@ -94,6 +116,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// exchange auth code for user authentication data, if exists/valid
 	userData, err := h.oauth.RetrieveUserData(cmd)
 	if err != nil {
+		log.Error("failed to retrieve user data for callback command", "err", err.Error())
 		h.oauth.HandleServiceErr(err, w)
 		return
 	}
@@ -101,7 +124,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// set up jwt claims fields
 	jti, err := uuid.NewRandom()
 	if err != nil {
-		h.logger.Error("failed to generate jti for access token", "err", err.Error())
+		log.Error("failed to generate jti for access token", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
 			Message:    ErrMintToken,
@@ -127,7 +150,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// mint jwt access token
 	accessToken, err := h.auth.MintToken(accessClaims)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("failed to mint access token for user name %s", userData.Username), "err", err.Error())
+		log.Error(fmt.Sprintf("failed to mint access token for user name %s", userData.Username), "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
 			Message:    ErrMintToken,
@@ -158,7 +181,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// mint jwt id token
 	idToken, err := h.auth.MintToken(idClaims)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("failed to mint id token for user name %s", userData.Username), "err", err.Error())
+		log.Error(fmt.Sprintf("failed to mint id token for user name %s", userData.Username), "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
 			Message:    "failed to mint id token",
@@ -170,7 +193,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// refresh token
 	refresh, err := uuid.NewRandom()
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("failed to generate refresh token for user name %s", userData.Username), "err", err.Error())
+		log.Error(fmt.Sprintf("failed to generate refresh token for user name %s", userData.Username), "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
 			Message:    "failed to generate refresh token",
@@ -193,7 +216,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	go func(r types.UserRefresh) {
 		if err := h.auth.PersistRefresh(r); err != nil {
-			h.logger.Error(fmt.Sprintf("failed to persist refresh token for user name %s", userData.Username), "err", err.Error())
+			log.Error(fmt.Sprintf("failed to persist refresh token for user name %s", userData.Username), "err", err.Error())
 		}
 	}(persist)
 
@@ -209,12 +232,15 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		IdTokenExpires:     data.CustomTime{Time: time.Unix(idToken.Claims.Expires, 0).UTC()},
 	}
 
+	log.Info(fmt.Sprintf("successfully generated access, identity, and refresh tokens for user %s", userData.Username))
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(authz); err != nil {
-		h.logger.Error(fmt.Sprintf("failed to encode access token response for user (%s) callback", userData.Username), "err", err.Error())
+		log.Error(fmt.Sprintf("failed to encode access token response for oauth callback for user %s", userData.Username),
+			slog.String("error", err.Error()))
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
-			Message:    "failed to encode access token response due to internal service error",
+			Message:    "failed to encode access token response to json",
 		}
 		e.SendJsonErr(w)
 		return

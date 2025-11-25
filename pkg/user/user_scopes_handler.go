@@ -1,14 +1,15 @@
 package user
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"shaw/internal/util"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
+	"github.com/tdeslauriers/shaw/internal/util"
 )
 
 // ScopesHandler is an interface for handling requests to update the user's assigned scopes
@@ -43,11 +44,18 @@ type scopesHandler struct {
 // the request to update the user's assigned scopes
 func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 
-	if r.Method != http.MethodPost {
-		h.logger.Error("only POST http method allowed to /users/scopes")
+	// get telemetry from request
+	tel := connect.ObtainTelemetry(r, h.logger)
+	log := h.logger.With(tel.TelemetryFields()...)
+
+	// add telemetry to context for downstream calls + service functions
+	ctx := context.WithValue(r.Context(), connect.TelemetryKey, tel)
+
+	if r.Method != http.MethodPut {
+		log.Error("http method not allowed", "err", "only POST http method allowed")
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusMethodNotAllowed,
-			Message:    "only POST http method allowed to /users/scopes",
+			Message:    "only POST http method allowed",
 		}
 		e.SendJsonErr(w)
 		return
@@ -55,8 +63,9 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 
 	// validate s2s token
 	s2sToken := r.Header.Get("Service-Authorization")
-	if _, err := h.s2sVerifier.BuildAuthorized(updateUserAllowed, s2sToken); err != nil {
-		h.logger.Error(fmt.Sprintf("user scopes handler failed to authorize s2s token: %s", err.Error()))
+	authedSvc, err := h.s2sVerifier.BuildAuthorized(updateUserAllowed, s2sToken)
+	if err != nil {
+		log.Error("failed to authorize s2s token", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
@@ -65,7 +74,7 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 	iamToken := r.Header.Get("Authorization")
 	authorized, err := h.iamVerifier.BuildAuthorized(updateUserAllowed, iamToken)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("user scopes handler failed to authorize iam token: %s", err.Error()))
+		log.Error("failed to authorize iam token", "err", err.Error())
 		connect.RespondAuthFailure(connect.User, err, w)
 		return
 	}
@@ -73,11 +82,10 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 	// decode request body
 	var cmd UserScopesCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
-		errMsg := fmt.Sprintf("user scopes handler failed to decode request body: %s", err.Error())
-		h.logger.Error(errMsg)
+		log.Error("failed to decode user scopes cmd", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusBadRequest,
-			Message:    errMsg,
+			Message:    err.Error(),
 		}
 		e.SendJsonErr(w)
 		return
@@ -85,7 +93,7 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 
 	// validate cmd
 	if err := cmd.ValidateCmd(); err != nil {
-		h.logger.Error(fmt.Sprintf("user scopes handler failed to validate cmd: %s", err.Error()))
+		log.Error("failed to validate user scope cmd", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnprocessableEntity,
 			Message:    err.Error(),
@@ -95,23 +103,26 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// lookup user by slug
-	u, err := h.service.GetUser(cmd.UserSlug)
+	u, err := h.service.GetUser(ctx, cmd.UserSlug)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("user scopes handler failed to get user: %s", err.Error()))
+		log.Error("failed to get user for scope update", "err", err.Error())
 		h.service.HandleServiceErr(err, w)
 		return
 	}
 
 	// update user scopes
 	// dont need to check if cmd is empty, empty slice == remove all scopes
-	if err := h.service.UpdateScopes(u, cmd.ScopeSlugs); err != nil {
-		h.logger.Error(fmt.Sprintf("user scopes handler failed to update user scopes: %s", err.Error()))
+	if err := h.service.UpdateScopes(ctx, u, cmd.ScopeSlugs); err != nil {
+		log.Error("failed to update user scopes", "err", err.Error())
 		h.service.HandleServiceErr(err, w)
 		return
 	}
 
 	// log success
-	h.logger.Info(fmt.Sprintf("user %s's scopes successfully updated by %s", u.Username, authorized.Claims.Subject))
+	log.Info(fmt.Sprintf("successfully updated scopes for user %s", u.Username),
+		"requesting_service", authedSvc.Claims.Subject,
+		"actor", authorized.Claims.Subject,
+	)
 
 	// respond 204
 	w.WriteHeader(http.StatusNoContent)

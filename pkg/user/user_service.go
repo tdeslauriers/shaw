@@ -1,21 +1,20 @@
 package user
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
-
 	"log/slog"
-	"shaw/internal/util"
-	"shaw/pkg/scope"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tdeslauriers/carapace/pkg/data"
-	"github.com/tdeslauriers/carapace/pkg/profile"
-	"github.com/tdeslauriers/carapace/pkg/session/types"
 	"github.com/tdeslauriers/carapace/pkg/validate"
+	"github.com/tdeslauriers/ran/pkg/scopes"
+	"github.com/tdeslauriers/shaw/internal/util"
+	"github.com/tdeslauriers/shaw/pkg/scope"
 )
 
 // Service is the interface for the user service functionality like retrieving user data by username from the db.
@@ -29,20 +28,26 @@ type UserService interface {
 	GetUsers() ([]Profile, error)
 
 	// GetUser retrieves user data (including user's scopes) by slug from persistence.
-	GetUser(slug string) (*profile.User, error)
+	GetUser(ctx context.Context, slug string) (*User, error)
 
 	// Update updates the user data in in persistence.
 	Update(user *Profile) error
 
 	// UpdateScopes updates the user's scopes assigned scopes given a command of scope slugs.
-	UpdateScopes(user *profile.User, cmd []string) error
+	UpdateScopes(ctx context.Context, user *User, cmd []string) error
 
 	// IsActive checks if the user is active.
 	IsActive(u *Profile) (bool, error)
 }
 
 // NewUserService creates a new UserService interface by returning a pointer to a new concrete implementation
-func NewUserService(db data.SqlRepository, i data.Indexer, c data.Cryptor, s scope.ScopesService) UserService {
+func NewUserService(
+	db data.SqlRepository,
+	i data.Indexer,
+	c data.Cryptor,
+	s scope.ScopesService,
+) UserService {
+
 	return &userService{
 		db:     db,
 		index:  i,
@@ -51,7 +56,7 @@ func NewUserService(db data.SqlRepository, i data.Indexer, c data.Cryptor, s sco
 
 		logger: slog.Default().
 			With(slog.String(util.ComponentKey, util.ComponentUser)).
-			With(slog.String(util.ServiceKey, util.ServiceName)),
+			With(slog.String(util.PackageKey, util.PackageUser)),
 	}
 }
 
@@ -116,26 +121,19 @@ func (s *userService) GetUsers() ([]Profile, error) {
 	close(errChan)
 
 	// check for decryption errors
-	errCount := len(errChan)
-	if errCount > 0 {
-		var builder strings.Builder
-		counter := 0
+	if len(errChan) > 0 {
+		var errs []error
 		for err := range errChan {
-			builder.WriteString(fmt.Sprintf("%d. %v\n", counter, err))
-			if counter < errCount-1 {
-				builder.WriteString("; ")
-			}
-			counter++
+			errs = append(errs, err)
 		}
-		return nil, fmt.Errorf("failed to decrypt user data: %s", builder.String())
+		return nil, fmt.Errorf("failed to decrypt user records: %v", errors.Join(errs...))
 	}
 
 	return users, nil
-
 }
 
 // GetUser retrieves user data (including user's scopes) by slug from the database.
-func (s *userService) GetUser(slug string) (*profile.User, error) {
+func (s *userService) GetUser(ctx context.Context, slug string) (*User, error) {
 
 	// get profile data
 	u, err := s.getBySlug(slug)
@@ -145,12 +143,12 @@ func (s *userService) GetUser(slug string) (*profile.User, error) {
 
 	// get scopes
 	// service left empty for now because not service specific
-	scopes, err := s.scopes.GetUserScopes(u.Username, "")
+	scopes, err := s.scopes.GetUserScopes(ctx, u.Username, "")
 	if err != nil {
 		return nil, err
 	}
 
-	return &profile.User{
+	return &User{
 		Id:             u.Id,
 		Username:       u.Username,
 		Firstname:      u.Firstname,
@@ -285,30 +283,42 @@ func (s *userService) Update(user *Profile) error {
 
 	// encrypt user data for persistence
 	wg.Add(2)
-	go s.encrypt([]byte(user.Firstname), ErrEncryptFirstname, &encFirstname, errChan, &wg)
-	go s.encrypt([]byte(user.Lastname), ErrEncryptLastname, &encLastname, errChan, &wg)
+	go s.encrypt(
+		[]byte(user.Firstname),
+		ErrEncryptFirstname,
+		&encFirstname,
+		errChan,
+		&wg,
+	)
+	go s.encrypt(
+		[]byte(user.Lastname),
+		ErrEncryptLastname,
+		&encLastname,
+		errChan,
+		&wg,
+	)
 
 	if user.BirthDate != "" {
 		wg.Add(1)
-		go s.encrypt([]byte(user.BirthDate), ErrEncryptBirthDate, &encBirthDate, errChan, &wg)
+		go s.encrypt(
+			[]byte(user.BirthDate),
+			ErrEncryptBirthDate,
+			&encBirthDate,
+			errChan,
+			&wg,
+		)
 	}
 
 	wg.Wait()
 	close(errChan)
 
 	// check for encryption errors and consolidate
-	errCount := len(errChan)
-	if errCount > 0 {
-		var builder strings.Builder
-		counter := 0
+	if len(errChan) > 0 {
+		var errs []error
 		for err := range errChan {
-			builder.WriteString(fmt.Sprintf("%d. %v\n", counter, err))
-			if counter < errCount-1 {
-				builder.WriteString("; ")
-			}
-			counter++
+			errs = append(errs, err)
 		}
-		return fmt.Errorf("failed to encrypt user data: %s", builder.String())
+		return fmt.Errorf("failed to encrypt user data for user %s update: %v", user.Username, errors.Join(errs...))
 	}
 
 	// update user data
@@ -329,7 +339,7 @@ func (s *userService) Update(user *Profile) error {
 
 // UpdateScopes is a concrete implementation of the interface method which updates the
 // user's assigned scopes given a command of scope slugs.
-func (s *userService) UpdateScopes(user *profile.User, cmd []string) error {
+func (s *userService) UpdateScopes(ctx context.Context, user *User, cmd []string) error {
 
 	// validate the cmd scopes
 	for _, slug := range cmd {
@@ -339,7 +349,7 @@ func (s *userService) UpdateScopes(user *profile.User, cmd []string) error {
 	}
 
 	// call scopes service to get all scopes.
-	allScopes, err := s.scopes.GetAll()
+	allScopes, err := s.scopes.GetAll(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to update scopes: %v", err)
 	}
@@ -347,7 +357,7 @@ func (s *userService) UpdateScopes(user *profile.User, cmd []string) error {
 	// validate that all scopes slugs submitted are valid scopes
 	// and build updated list of scopes from cmd slugs
 	// so uuids can be used for db xref records
-	updated := make([]types.Scope, 0, len(cmd))
+	updated := make([]scopes.Scope, 0, len(cmd))
 	if len(cmd) > 0 {
 		for _, slug := range cmd {
 			var exists bool

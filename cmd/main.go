@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"shaw/internal/util"
-	"shaw/pkg/identity"
 
 	"github.com/tdeslauriers/carapace/pkg/config"
+	"github.com/tdeslauriers/shaw/internal/util"
+	"github.com/tdeslauriers/shaw/pkg/identity"
 )
 
 func main() {
@@ -16,14 +16,19 @@ func main() {
 	jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})
-	slog.SetDefault(slog.New(jsonHandler))
+
+	// set default logger for all packages to use json format
+	slog.SetDefault(slog.New(jsonHandler).
+		With(slog.String(util.ServiceKey, util.ServiceIdentity)))
 
 	// set up logger for main
-	logger := slog.Default().With(slog.String(util.ComponentKey, util.ComponentMain))
+	logger := slog.Default().
+		With(slog.String(util.PackageKey, util.PackageMain)).
+		With(slog.String(util.ComponentKey, util.ComponentMain))
 
 	// service definition
 	def := config.SvcDefinition{
-		ServiceName: "shaw",
+		ServiceName: util.ServiceIdentity,
 		Tls:         config.MutualTls,
 		Requires: config.Requires{
 			S2sClient:        true,

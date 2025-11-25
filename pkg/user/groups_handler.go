@@ -1,15 +1,16 @@
 package user
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"shaw/internal/util"
 	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
+	"github.com/tdeslauriers/shaw/internal/util"
 )
 
 // GroupsHandler interface for handling requests for groups of users
@@ -27,7 +28,6 @@ func NewGroupsHandler(s Service, s2s, iam jwt.Verifier) GroupsHandler {
 		iamVerifier: iam,
 
 		logger: slog.Default().
-			With(slog.String(util.ServiceKey, util.ServiceName)).
 			With(slog.String(util.PackageKey, util.PackageUser)).
 			With(slog.String(util.ComponentKey, util.ComponentUser)),
 	}
@@ -48,9 +48,16 @@ type groupsHandler struct {
 // the requests for groups of users based on query param criteria
 func (h *groupsHandler) HandleUserGroups(w http.ResponseWriter, r *http.Request) {
 
+	// get telemetry from request
+	tel := connect.ObtainTelemetry(r, h.logger)
+	log := h.logger.With(tel.TelemetryFields()...)
+
+	// add telemetry to context for callstack + service functions
+	ctx := context.WithValue(r.Context(), connect.TelemetryKey, tel)
+
 	// check query params exist
 	if r.URL.RawQuery == "" {
-		h.logger.Error("no query params provided")
+		log.Error("no query params provided")
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusBadRequest,
 			Message:    "no query params provided",
@@ -69,20 +76,24 @@ func (h *groupsHandler) HandleUserGroups(w http.ResponseWriter, r *http.Request)
 
 	// validate s2s token
 	s2sToken := r.Header.Get("Service-Authorization")
-	if _, err := h.s2sVerifier.BuildAuthorized(requiredScopes, s2sToken); err != nil {
-		h.logger.Error("user groups handler failed to authorize s2s token", "err", err.Error())
+	authedSvc, err := h.s2sVerifier.BuildAuthorized(requiredScopes, s2sToken)
+	if err != nil {
+		log.Error("user groups handler failed to authorize s2s token", "err", err.Error())
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
 
 	// validate iam token if necessary
+	var authedUser *jwt.Token
 	if h.iamVerifier != nil {
 		iamToken := r.Header.Get("Authorization")
-		if _, err := h.iamVerifier.BuildAuthorized(requiredScopes, iamToken); err != nil {
-			h.logger.Error("user groups handler failed to authorize iam token", "err", err.Error())
+		authorized, err := h.iamVerifier.BuildAuthorized(requiredScopes, iamToken)
+		if err != nil {
+			log.Error("user groups handler failed to authorize iam token", "err", err.Error())
 			connect.RespondAuthFailure(connect.User, err, w)
 			return
 		}
+		authedUser = authorized
 	}
 
 	// get query params
@@ -91,7 +102,7 @@ func (h *groupsHandler) HandleUserGroups(w http.ResponseWriter, r *http.Request)
 	// get scopes params
 	scopes := queryParams.Get("scopes")
 	if len(scopes) < 1 {
-		h.logger.Error("no scopes provided")
+		log.Error("no scopes provided")
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusBadRequest,
 			Message:    "no scopes provided",
@@ -101,7 +112,7 @@ func (h *groupsHandler) HandleUserGroups(w http.ResponseWriter, r *http.Request)
 
 	// light validation of scopes
 	if len(scopes) > 512 {
-		h.logger.Error("scopes url query param too long")
+		log.Error("scopes url query param too long")
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusBadRequest,
 			Message:    "scopes url query param too long",
@@ -114,29 +125,30 @@ func (h *groupsHandler) HandleUserGroups(w http.ResponseWriter, r *http.Request)
 	scps := strings.Split(scopes, " ")
 
 	// get scopes records from s2s service (source of truth)
-	users, err := h.service.GetUsersWithScopes(scps)
+	users, err := h.service.GetUsersWithScopes(ctx, scps)
 	if err != nil {
-		errMsg := fmt.Sprintf("failed to get users with scopes '%s': %v", scopes, err.Error())
-		h.logger.Error(errMsg)
+		log.Error("failed to get user groups for scopes", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
-			Message:    errMsg,
+			Message:    err.Error(),
 		}
 		e.SendJsonErr(w)
 		return
 	}
 
-	usersJson, err := json.Marshal(users)
-	if err != nil {
-		h.logger.Error(fmt.Sprintf("/users handler failed to marshal users: %s", err.Error()))
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusInternalServerError,
-			Message:    "failed to marshal users",
-		}
-		e.SendJsonErr(w)
-		return
-	}
+	log.Info(fmt.Sprintf("successfully retrieved %d users with scopes '%s'", len(users), scopes),
+		"actor", authedUser.Claims.Subject,
+		"requesting_service", authedSvc.Claims.Subject,
+	)
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(usersJson) // writes status code 200 as part of execution
+	if err := json.NewEncoder(w).Encode(users); err != nil {
+		log.Error("failed to json encode user groups response body object", "err", err.Error())
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusInternalServerError,
+			Message:    "failed to encode response",
+		}
+		e.SendJsonErr(w)
+		return
+	}
 }

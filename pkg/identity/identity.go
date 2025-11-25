@@ -6,14 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"shaw/internal/util"
-	"shaw/pkg/authentication"
-	"shaw/pkg/callback"
-	"shaw/pkg/login"
-	"shaw/pkg/oauth"
-	"shaw/pkg/refresh"
-	"shaw/pkg/register"
-	"shaw/pkg/user"
+
 	"time"
 
 	"github.com/tdeslauriers/carapace/pkg/config"
@@ -24,6 +17,13 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/schedule"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/sign"
+	"github.com/tdeslauriers/shaw/internal/util"
+	"github.com/tdeslauriers/shaw/pkg/authentication"
+	"github.com/tdeslauriers/shaw/pkg/login"
+	"github.com/tdeslauriers/shaw/pkg/oauth"
+	"github.com/tdeslauriers/shaw/pkg/refresh"
+	"github.com/tdeslauriers/shaw/pkg/register"
+	"github.com/tdeslauriers/shaw/pkg/user"
 )
 
 type Identity interface {
@@ -146,7 +146,9 @@ func New(config config.Config) (Identity, error) {
 		userService:     user.NewService(repository, indexer, cryptor, s2sProvider, s2sCaller),
 		cleanup:         schedule.NewCleanup(repository),
 
-		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentIdentity)),
+		logger: slog.Default().
+			With(slog.String(util.PackageKey, util.PackageIdentity)).
+			With(slog.String(util.ComponentKey, util.ComponentIdentity)),
 	}, nil
 }
 
@@ -185,7 +187,7 @@ func (i *identity) Run() error {
 	loginHandler := login.NewHandler(i.authService, i.oathService, i.s2sVerifier)
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
 
-	callbackHandler := callback.NewHandler(i.s2sVerifier, i.authService, i.oathService)
+	callbackHandler := oauth.NewHandler(i.oathService, i.authService, i.s2sVerifier)
 	mux.HandleFunc("/callback", callbackHandler.HandleCallback)
 
 	refreshHandler := refresh.NewHandler(i.authService, i.s2sVerifier, i.userService)
@@ -195,15 +197,13 @@ func (i *identity) Run() error {
 	// users endpoints for s2s clients (not user facing)
 	// requires s2s service-call-specific scopes
 	s2sUserHandler := user.NewHandler(i.userService, i.s2sVerifier, nil)
-	mux.HandleFunc("/s2s/users", s2sUserHandler.HandleUsers)
-	mux.HandleFunc("/s2s/users/", s2sUserHandler.HandleUser)
+	mux.HandleFunc("/s2s/users/{slug...}", s2sUserHandler.HandleUsers)
 	mux.HandleFunc("/s2s/users/groups", s2sUserHandler.HandleUserGroups)
 
 	userHandler := user.NewHandler(i.userService, i.s2sVerifier, i.iamVerifier)
 	mux.HandleFunc("/profile", userHandler.HandleProfile)
 	mux.HandleFunc("/reset", userHandler.HandleReset)
-	mux.HandleFunc("/users", userHandler.HandleUsers)
-	mux.HandleFunc("/users/", userHandler.HandleUser)
+	mux.HandleFunc("/users/{slug...}", userHandler.HandleUsers)
 	mux.HandleFunc("/users/scopes", userHandler.HandleScopes)
 
 	identityServer := &connect.TlsServer{

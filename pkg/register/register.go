@@ -1,12 +1,11 @@
 package register
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
-	"shaw/internal/util"
-	"shaw/pkg/user"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +15,9 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
+	ran "github.com/tdeslauriers/ran/pkg/scopes"
+	"github.com/tdeslauriers/shaw/internal/util"
+	"github.com/tdeslauriers/shaw/pkg/user"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -24,29 +26,37 @@ var defaultScopes []string = []string{"r:shaw:profile:*", "w:shaw:profile:*", "r
 
 type Service interface {
 	// Register registers a new user account and creates appropriate xrefs for default scopes and client(s)
-	Register(types.UserRegisterCmd) error
+	Register(ctx context.Context, cmd types.UserRegisterCmd) error
 }
 
-func NewService(db data.SqlRepository, c data.Cryptor, i data.Indexer, p provider.S2sTokenProvider, caller connect.S2sCaller) Service {
+func NewService(
+	db data.SqlRepository,
+	c data.Cryptor,
+	i data.Indexer,
+	p provider.S2sTokenProvider,
+	s2s *connect.S2sCaller,
+) Service {
 	return &service{
-		db:        db,
-		cipher:    c,
-		indexer:   i,
-		s2sToken:  p,
-		s2sCaller: caller,
+		db:      db,
+		cipher:  c,
+		indexer: i,
+		tkn:     p,
+		s2s:     s2s,
 
-		logger: slog.Default().With(slog.String(util.ComponentKey, util.ComponentRegister)),
+		logger: slog.Default().
+			With(slog.String(util.PackageKey, util.PackageRegister)).
+			With(slog.String(util.ComponentKey, util.ComponentRegister)),
 	}
 }
 
 var _ Service = (*service)(nil)
 
 type service struct {
-	db        data.SqlRepository
-	cipher    data.Cryptor
-	indexer   data.Indexer
-	s2sToken  provider.S2sTokenProvider
-	s2sCaller connect.S2sCaller
+	db      data.SqlRepository
+	cipher  data.Cryptor
+	indexer data.Indexer
+	tkn     provider.S2sTokenProvider
+	s2s     *connect.S2sCaller
 
 	logger *slog.Logger
 }
@@ -66,25 +76,28 @@ const (
 )
 
 // Register implements the RegistrationService interface
-func (s *service) Register(cmd types.UserRegisterCmd) error {
+func (s *service) Register(ctx context.Context, cmd types.UserRegisterCmd) error {
 
-	// validate registration fields
-	// redundant check because checked in handler, but good practice
-	if err := cmd.ValidateCmd(); err != nil {
-		s.logger.Error("failed to validate user registration fields", "err", err.Error())
-		return errors.New(err.Error())
+	// create local logger for this function with telemetry fields
+	log := s.logger
+
+	// get telemetry from context if exists
+	if tel, ok := ctx.Value(connect.TelemetryKey).(*connect.Telemetry); ok && tel != nil {
+		log = log.With(tel.TelemetryFields()...)
+	} else {
+		log.Warn("no telemetry found in context for registration service")
 	}
 
 	// check client id
 	if len(cmd.ClientId) != 36 {
-		s.logger.Error("invalid client id", "err", fmt.Sprintf("client id %s is not a valid uuid", cmd.ClientId))
+		log.Error("invalid client id", "err", fmt.Sprintf("client id %s is not a valid uuid", cmd.ClientId))
 		return errors.New("invalid client id")
 	}
 
 	// create blind user userIndex
 	userIndex, err := s.indexer.ObtainBlindIndex(cmd.Username)
 	if err != nil {
-		s.logger.Error("failed to create username index", "err", err.Error())
+		log.Error("failed to create username index", "err", err.Error())
 		return errors.New(BuildUserErrMsg)
 	}
 
@@ -104,11 +117,11 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		query := "SELECT EXISTS(SELECT 1 from account WHERE user_index = ?) AS record_exists"
 		exists, err := s.db.SelectExists(query, idx)
 		if err != nil {
-			s.logger.Error("failed db call to check if user exists", "err", err.Error())
+			log.Error("failed db call to check if user exists", "err", err.Error())
 			ch <- fmt.Errorf("failed db lookup to check if user exists")
 		}
 		if exists {
-			s.logger.Error(fmt.Sprintf("username %s already exists", cmd.Username))
+			log.Error(fmt.Sprintf("username %s already exists", cmd.Username))
 			ch <- errors.New(UsernameUnavailableErrMsg)
 		}
 	}(userIndex, checkErrChan, &wgCheck)
@@ -121,26 +134,26 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		query := "SELECT uuid, client_id, client_name, description, created_at, enabled, client_expired, client_locked FROM client WHERE client_id = ?"
 		if err := s.db.SelectRecord(query, c, cmd.ClientId); err != nil {
 			if err == sql.ErrNoRows {
-				s.logger.Error(fmt.Sprintf("client id xxxxxx-%s not found", cmd.ClientId[len(cmd.ClientId)-6:]), "err", err.Error())
+				log.Error(fmt.Sprintf("client id xxxxxx-%s not found", cmd.ClientId[len(cmd.ClientId)-6:]), "err", err.Error())
 				ch <- errors.New(BuildUserErrMsg)
 			} else {
-				s.logger.Error(fmt.Sprintf("failed to lookup client record for client id %s", cmd.ClientId[len(cmd.ClientId)-6:]), "err", err.Error())
+				log.Error(fmt.Sprintf("failed to lookup client record for client id %s", cmd.ClientId[len(cmd.ClientId)-6:]), "err", err.Error())
 				ch <- errors.New(BuildUserErrMsg)
 			}
 		}
 
 		if !c.Enabled {
-			s.logger.Error(fmt.Sprintf("client id xxxxxx-%s is disabled", cmd.ClientId[len(cmd.ClientId)-6:]))
+			log.Error(fmt.Sprintf("client id xxxxxx-%s is disabled", cmd.ClientId[len(cmd.ClientId)-6:]))
 			ch <- errors.New("registration failed because client is disabled")
 		}
 
 		if c.ClientExpired {
-			s.logger.Error(fmt.Sprintf("client id xxxxxx-%s is expired", cmd.ClientId[len(cmd.ClientId)-6:]))
+			log.Error(fmt.Sprintf("client id xxxxxx-%s is expired", cmd.ClientId[len(cmd.ClientId)-6:]))
 			ch <- errors.New("registration failed because client is expired")
 		}
 
 		if c.ClientLocked {
-			s.logger.Error(fmt.Sprintf("client id xxxxxx-%s is locked", cmd.ClientId[len(cmd.ClientId)-6:]))
+			log.Error(fmt.Sprintf("client id xxxxxx-%s is locked", cmd.ClientId[len(cmd.ClientId)-6:]))
 			ch <- errors.New("registration failed because client is locked")
 		}
 
@@ -188,7 +201,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		i, err := uuid.NewRandom()
 		if err != nil {
 			msg := fmt.Sprintf("failed to create uuid for username/email %s", cmd.Username)
-			s.logger.Error(msg, "err", err.Error())
+			log.Error(msg, "err", err.Error())
 			ch <- errors.New(msg)
 		}
 
@@ -204,7 +217,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		sg, err := uuid.NewRandom()
 		if err != nil {
 			msg := fmt.Sprintf("failed to create user slug for username/email %s: %v", cmd.Username, err)
-			s.logger.Error(msg, "err", err.Error())
+			log.Error(msg, "err", err.Error())
 			ch <- errors.New(msg)
 		}
 
@@ -217,7 +230,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		encrypted, err := s.cipher.EncryptServiceData([]byte(sg.String()))
 		if err != nil {
 			msg := fmt.Sprintf("%s user slug for username/email %s: %v", FieldLevelEncryptErrMsg, cmd.Username, err)
-			s.logger.Error(msg, "err", err.Error())
+			log.Error(msg, "err", err.Error())
 			ch <- errors.New(msg)
 		}
 
@@ -233,7 +246,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		encrypted, err := s.cipher.EncryptServiceData([]byte(cmd.Username))
 		if err != nil {
 			msg := fmt.Sprintf("%s username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
-			s.logger.Error(msg, "err", err.Error())
+			log.Error(msg, "err", err.Error())
 			ch <- errors.New(msg)
 		}
 
@@ -248,7 +261,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		hashed, err := bcrypt.GenerateFromPassword([]byte(cmd.Password), 13)
 		if err != nil {
 			msg := fmt.Sprintf("failed to generate bcrypt password hash for username/email (%s)", cmd.Username)
-			s.logger.Error(msg, "err", err.Error())
+			log.Error(msg, "err", err.Error())
 			ch <- errors.New(msg)
 		}
 
@@ -263,7 +276,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		encrypted, err := s.cipher.EncryptServiceData([]byte(cmd.Firstname))
 		if err != nil {
 			msg := fmt.Sprintf("%s first name for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
-			s.logger.Error(msg, "err", err.Error())
+			log.Error(msg, "err", err.Error())
 			ch <- errors.New(msg)
 		}
 
@@ -278,7 +291,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		encrypted, err := s.cipher.EncryptServiceData([]byte(cmd.Lastname))
 		if err != nil {
 			msg := fmt.Sprintf("%s lastname for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
-			s.logger.Error(msg, "err", err.Error())
+			log.Error(msg, "err", err.Error())
 			ch <- errors.New(msg)
 		}
 
@@ -293,7 +306,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		encrypted, err := s.cipher.EncryptServiceData([]byte(cmd.Birthdate))
 		if err != nil {
 			msg := fmt.Sprintf("%s dob for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
-			s.logger.Error(msg, "err", err.Error())
+			log.Error(msg, "err", err.Error())
 			ch <- errors.New(msg)
 		}
 
@@ -348,11 +361,11 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 		// insert user into database
 		query := "INSERT INTO account (uuid, username, user_index, password, firstname, lastname, birth_date, slug, slug_index, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 		if err := s.db.InsertRecord(query, a); err != nil {
-			s.logger.Error(fmt.Sprintf("failed to insert (%s) user record into account table in db", cmd.Username), "err", err.Error())
+			log.Error(fmt.Sprintf("failed to insert (%s) user record into account table in db", cmd.Username), "err", err.Error())
 			ch <- errors.New(BuildUserErrMsg)
 			return
 		}
-		s.logger.Info(fmt.Sprintf("user %s successfully saved in account table", cmd.Username))
+		log.Info(fmt.Sprintf("user %s successfully saved in account table", cmd.Username))
 	}(account, persistErrChan, &wgPersist)
 
 	// persist password to password history table
@@ -378,7 +391,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 			ch <- fmt.Errorf("failed to insert password history record for registering user %s", cmd.Username)
 			return
 		}
-		s.logger.Info(fmt.Sprintf("password history record successfully saved for registering user %s", cmd.Username))
+		log.Info(fmt.Sprintf("password history record successfully saved for registering user %s", cmd.Username))
 	}(account, persistErrChan, &wgPersist)
 
 	// wait for user to be saved, otherwise no need to continue.
@@ -401,22 +414,30 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 	}
 
 	// get s2s service endpoint token to retreive scopes
-	s2stoken, err := s.s2sToken.GetServiceToken(util.ServiceNameS2s)
+	s2stoken, err := s.tkn.GetServiceToken(ctx, util.ServiceNameS2s)
 	if err != nil {
-		s.logger.Error("failed to get s2s token to retreive scopes", "err", err.Error())
+		log.Error("failed to get s2s token to retreive scopes", "err", err.Error())
 		return errors.New(BuildUserErrMsg)
 	}
 
 	// call scopes endpoint
-	var scopes []types.Scope
-	if err := s.s2sCaller.GetServiceData("/s2s/scopes", s2stoken, "", &scopes); err != nil {
-		s.logger.Error("failed to get scopes data", "err", err.Error())
+	scopes, err := connect.GetServiceData[[]ran.Scope](
+		ctx,
+		s.s2s,
+		"/s2s/scopes",
+		s2stoken,
+		"",
+	)
+	if err != nil {
+		log.Error("failed to get scopes data from s2s scopes endpoint", "err", err.Error())
 		return errors.New(BuildUserErrMsg)
 	}
 
 	if len(scopes) < 1 {
-		s.logger.Error("no scopes returned from scopes endpoint")
+		log.Error("no scopes returned from scopes endpoint")
 		return errors.New(BuildUserErrMsg)
+	} else {
+		log.Info(fmt.Sprintf("successfully retrieved %d scopes from s2s scopes endpoint", len(scopes)))
 	}
 
 	// filter for default scopes
@@ -430,7 +451,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 	for _, scope := range defaults {
 
 		wgXref.Add(1)
-		go func(id, created string, scope types.Scope, ch chan error, wg *sync.WaitGroup) {
+		go func(id, created string, scope ran.Scope, ch chan error, wg *sync.WaitGroup) {
 			defer wg.Done()
 
 			xref := types.AccountScopeXref{
@@ -446,7 +467,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 				return
 			}
 
-			s.logger.Info(fmt.Sprintf("user %s successfully assigned default scope %s", cmd.Username, scope.Name))
+			log.Info(fmt.Sprintf("user %s successfully assigned default scope %s", cmd.Username, scope.Name))
 		}(id, createdAt.Format("2006-01-02 15:04:05"), scope, xrefErrChan, &wgXref)
 	}
 
@@ -468,7 +489,7 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 			return
 		}
 
-		s.logger.Info(fmt.Sprintf("user %s successfully associated with client %s", cmd.Username, ""))
+		log.Info(fmt.Sprintf("user %s successfully associated with client %s", cmd.Username, ""))
 	}(id, createdAt.Format("2006-01-02 15:04:05"), client, xrefErrChan, &wgXref)
 
 	// wait for all xref operations to complete
@@ -476,28 +497,27 @@ func (s *service) Register(cmd types.UserRegisterCmd) error {
 	close(xrefErrChan)
 
 	// return err if xref associations failed
-	errCount = len(xrefErrChan)
-	if errCount > 0 {
+	if len(xrefErrChan) > 0 {
 		for err := range xrefErrChan {
-			s.logger.Error(err.Error())
+			log.Error(err.Error())
 		}
 		return errors.New(BuildUserErrMsg)
 	}
 
-	s.logger.Info(fmt.Sprintf("successfully assigned and saved all default scopes and clients to user %s", cmd.Username))
-	s.logger.Info(fmt.Sprintf("user %s successfully registered", cmd.Username))
+	log.Info(fmt.Sprintf("successfully assigned and saved all default scopes and clients to user %s", cmd.Username))
+	log.Info(fmt.Sprintf("user %s successfully registered", cmd.Username))
 
 	return nil
 }
 
-func filterScopes(scopes []types.Scope, defaults []string) []types.Scope {
+func filterScopes(scopes []ran.Scope, defaults []string) []ran.Scope {
 
 	scopeMap := make(map[string]struct{})
 	for _, def := range defaults {
 		scopeMap[def] = struct{}{}
 	}
 
-	var filtered []types.Scope
+	var filtered []ran.Scope
 	for _, s := range scopes {
 		if _, exists := scopeMap[s.Scope]; exists {
 			filtered = append(filtered, s)

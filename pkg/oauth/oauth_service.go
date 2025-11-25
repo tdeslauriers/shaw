@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"shaw/internal/util"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +15,9 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
+	ran "github.com/tdeslauriers/ran/pkg/scopes"
+	"github.com/tdeslauriers/shaw/internal/util"
+	"github.com/tdeslauriers/shaw/pkg/user"
 )
 
 type Service interface {
@@ -30,6 +32,7 @@ func NewService(db data.SqlRepository, i data.Indexer, c data.Cryptor) Service {
 		cryptor: c,
 
 		logger: slog.Default().
+			With(slog.String(util.PackageKey, util.PackageOauth)).
 			With(slog.String(util.ComponentKey, util.ComponentOauthFlow)),
 	}
 }
@@ -43,7 +46,7 @@ type OauthService interface {
 
 	// GenerateAuthCode generates an auth code for and persists it to the db along with the user's scopes, nonce, the client, and the redirect url,
 	// associating it with the user so that it can be used to mint an access token and Id token on callback from the client
-	GenerateAuthCode(username, nonce, client, redirect string, scopes []types.Scope) (string, error)
+	GenerateAuthCode(username, nonce, client, redirect string, scopes []ran.Scope) (string, error)
 
 	// RetrieveUserData retrieves the user data associated with the auth code, if it exists and is valid.
 	// If any of the data provided in the AccessTokenCmd is invalid, an error is returned.
@@ -192,7 +195,7 @@ func (s *service) IsValidClient(clientId, username string) (bool, error) {
 }
 
 // GenerateAuthCode implements the OauthFlowService interface
-func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, scopes []types.Scope) (string, error) {
+func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, scopes []ran.Scope) (string, error) {
 
 	// check for empty fields: redundant check, but good practice
 	if username == "" || nonce == "" || clientId == "" || redirect == "" || len(scopes) == 0 {
@@ -226,7 +229,13 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 
 	// get user uuid from account table
 	wg.Add(1)
-	go func(username string, id *string, errs chan error, wg *sync.WaitGroup) {
+	go func(
+		username string,
+		id *string,
+		errs chan error,
+		wg *sync.WaitGroup,
+	) {
+
 		defer wg.Done()
 
 		userIndex, err := s.indexer.ObtainBlindIndex(username)
@@ -237,18 +246,28 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 
 		// only need the user uuid
 		qry := `SELECT uuid, username, user_index, password, firstname, lastname, birth_date, slug, slug_index, created_at, enabled, account_expired, account_locked FROM account WHERE user_index = ?`
-		var user types.UserAccount
+		var user user.UserAccount
 		if err := s.db.SelectRecord(qry, &user, userIndex); err != nil {
 			errs <- fmt.Errorf("failed to retrieve user uuid for %s: %v", username, err)
 		}
 
 		*id = user.Uuid
-	}(username, &userId, errChan, &wg)
+	}(
+		username,
+		&userId,
+		errChan,
+		&wg,
+	)
 
 	// build auth code record
 	// generate auth code primary key/id
 	wg.Add(1)
-	go func(authCodeId *uuid.UUID, errs chan error, wg *sync.WaitGroup) {
+	go func(
+		authCodeId *uuid.UUID,
+		errs chan error,
+		wg *sync.WaitGroup,
+	) {
+
 		defer wg.Done()
 
 		id, err := uuid.NewRandom()
@@ -257,11 +276,22 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 			return
 		}
 		*authCodeId = id
-	}(&authCodeId, errChan, &wg)
+	}(
+		&authCodeId,
+		errChan,
+		&wg,
+	)
 
 	// generate auth code, blind index, and encrypt auth code for persistence
 	wg.Add(1)
-	go func(authCode *uuid.UUID, authCodeIndex, encryptedAuthCode *string, errs chan error, wg *sync.WaitGroup) {
+	go func(
+		authCode *uuid.UUID,
+		authCodeIndex *string,
+		encryptedAuthCode *string,
+		errs chan error,
+		wg *sync.WaitGroup,
+	) {
+
 		defer wg.Done()
 
 		code, err := uuid.NewRandom()
@@ -284,11 +314,23 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 			return
 		}
 		*encryptedAuthCode = encrypted
-	}(&authCode, &authCodeIndex, &encryptedAuthCode, errChan, &wg)
+	}(
+		&authCode,
+		&authCodeIndex,
+		&encryptedAuthCode,
+		errChan,
+		&wg,
+	)
 
 	// encrypt nonce
 	wg.Add(1)
-	go func(nonce string, encryptedNonce *string, errs chan error, wg *sync.WaitGroup) {
+	go func(
+		nonce string,
+		encryptedNonce *string,
+		errs chan error,
+		wg *sync.WaitGroup,
+	) {
+
 		defer wg.Done()
 
 		encrypted, err := s.cryptor.EncryptServiceData([]byte(nonce))
@@ -297,11 +339,22 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 			return
 		}
 		*encryptedNonce = encrypted
-	}(nonce, &encryptedNonce, errChan, &wg)
+	}(
+		nonce,
+		&encryptedNonce,
+		errChan,
+		&wg,
+	)
 
 	// encrypt client id
 	wg.Add(1)
-	go func(clientId string, encryptedClientId *string, errs chan error, wg *sync.WaitGroup) {
+	go func(
+		clientId string,
+		encryptedClientId *string,
+		errs chan error,
+		wg *sync.WaitGroup,
+	) {
+
 		defer wg.Done()
 
 		encrypted, err := s.cryptor.EncryptServiceData([]byte(clientId))
@@ -310,11 +363,22 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 			return
 		}
 		*encryptedClientId = encrypted
-	}(clientId, &encryptedClientId, errChan, &wg)
+	}(
+		clientId,
+		&encryptedClientId,
+		errChan,
+		&wg,
+	)
 
 	// encrypt redirect url
 	wg.Add(1)
-	go func(redirect string, encryptedRedirect *string, errs chan error, wg *sync.WaitGroup) {
+	go func(
+		redirect string,
+		encryptedRedirect *string,
+		errs chan error,
+		wg *sync.WaitGroup,
+	) {
+
 		defer wg.Done()
 
 		encrypted, err := s.cryptor.EncryptServiceData([]byte(redirect))
@@ -323,11 +387,22 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 			return
 		}
 		*encryptedRedirect = encrypted
-	}(redirect, &encryptedRedirect, errChan, &wg)
+	}(
+		redirect,
+		&encryptedRedirect,
+		errChan,
+		&wg,
+	)
 
 	// encrypt scopes
 	wg.Add(1)
-	go func(scopes []types.Scope, encryptedScopes *string, errs chan error, wg *sync.WaitGroup) {
+	go func(
+		scopes []ran.Scope,
+		encryptedScopes *string,
+		errs chan error,
+		wg *sync.WaitGroup,
+	) {
+
 		defer wg.Done()
 
 		// build scopes string
@@ -345,7 +420,12 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 			return
 		}
 		*encryptedScopes = encrypted
-	}(scopes, &encryptedScopes, errChan, &wg)
+	}(
+		scopes,
+		&encryptedScopes,
+		errChan,
+		&wg,
+	)
 
 	// wait for all value generation goroutines to finish
 
@@ -505,33 +585,87 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 	)
 
 	wg.Add(1)
-	go s.decrypt(user.Username, ErrDecryptUsername, &decryptedUsername, errChan, &wg)
+	go s.decrypt(
+		user.Username,
+		ErrDecryptUsername,
+		&decryptedUsername,
+		errChan,
+		&wg,
+	)
 
 	wg.Add(1)
-	go s.decrypt(user.Firstname, ErrDecryptFirstname, &decryptedFirstname, errChan, &wg)
+	go s.decrypt(
+		user.Firstname,
+		ErrDecryptFirstname,
+		&decryptedFirstname,
+		errChan,
+		&wg,
+	)
 
 	wg.Add(1)
-	go s.decrypt(user.Lastname, ErrDecryptLastname, &decryptedLastname, errChan, &wg)
+	go s.decrypt(
+		user.Lastname,
+		ErrDecryptLastname,
+		&decryptedLastname,
+		errChan,
+		&wg,
+	)
 
 	if user.BirthDate != "" {
 		wg.Add(1)
-		go s.decrypt(user.BirthDate, ErrDecryptBirthdate, &decryptedBirthdate, errChan, &wg)
+		go s.decrypt(
+			user.BirthDate,
+			ErrDecryptBirthdate,
+			&decryptedBirthdate,
+			errChan,
+			&wg,
+		)
 	}
 
 	wg.Add(1)
-	go s.decrypt(user.Authcode, ErrDecryptAuthcode, &decryptedAuthcode, errChan, &wg)
+	go s.decrypt(
+		user.Authcode,
+		ErrDecryptAuthcode,
+		&decryptedAuthcode,
+		errChan,
+		&wg,
+	)
 
 	wg.Add(1)
-	go s.decrypt(user.Nonce, ErrDecryptNonce, &decryptedNonce, errChan, &wg)
+	go s.decrypt(
+		user.Nonce,
+		ErrDecryptNonce,
+		&decryptedNonce,
+		errChan,
+		&wg,
+	)
 
 	wg.Add(1)
-	go s.decrypt(user.ClientId, ErrDecryptClientid, &decryptedClientId, errChan, &wg)
+	go s.decrypt(
+		user.ClientId,
+		ErrDecryptClientid,
+		&decryptedClientId,
+		errChan,
+		&wg,
+	)
 
 	wg.Add(1)
-	go s.decrypt(user.RedirectUrl, ErrDecryptRedirecturl, &decryptedRedirectUrl, errChan, &wg)
+	go s.decrypt(
+		user.RedirectUrl,
+		ErrDecryptRedirecturl,
+		&decryptedRedirectUrl,
+		errChan,
+		&wg,
+	)
 
 	wg.Add(1)
-	go s.decrypt(user.Scopes, ErrDecryptScopes, &decryptedScopes, errChan, &wg)
+	go s.decrypt(
+		user.Scopes,
+		ErrDecryptScopes,
+		&decryptedScopes,
+		errChan,
+		&wg,
+	)
 
 	// wait for all decryption goroutines to finish
 	wg.Wait()
@@ -606,17 +740,13 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 	switch {
 	// 400
 	case strings.Contains(err.Error(), ErrValidateAuthCode):
-		s.logger.Error(err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusBadRequest,
 			Message:    ErrValidateAuthCode,
 		}
 		e.SendJsonErr(w)
 		return
-
-		// 401
 	case strings.Contains(err.Error(), ErrInvalidGrantType):
-		s.logger.Error(err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    ErrInvalidGrantType,
@@ -624,7 +754,6 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 		e.SendJsonErr(w)
 		return
 	case strings.Contains(err.Error(), ErrIndexNotFound):
-		s.logger.Error(err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    ErrIndexNotFound,
@@ -632,7 +761,6 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 		e.SendJsonErr(w)
 		return
 	case strings.Contains(err.Error(), ErrAuthcodeRevoked):
-		s.logger.Error(err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    ErrAuthcodeRevoked,
@@ -640,7 +768,6 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 		e.SendJsonErr(w)
 		return
 	case strings.Contains(err.Error(), ErrAuthcodeClaimed):
-		s.logger.Error(err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    ErrAuthcodeClaimed,
@@ -648,7 +775,6 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 		e.SendJsonErr(w)
 		return
 	case strings.Contains(err.Error(), ErrAuthcodeExpired):
-		s.logger.Error(err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    ErrAuthcodeExpired,
@@ -656,7 +782,6 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 		e.SendJsonErr(w)
 		return
 	case strings.Contains(err.Error(), ErrUserDisabled):
-		s.logger.Error(err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    ErrUserDisabled,
@@ -664,7 +789,6 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 		e.SendJsonErr(w)
 		return
 	case strings.Contains(err.Error(), ErrUserAccountLocked):
-		s.logger.Error(err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    ErrUserAccountLocked,
@@ -672,7 +796,6 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 		e.SendJsonErr(w)
 		return
 	case strings.Contains(err.Error(), ErrUserAccountExpired):
-		s.logger.Error(err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    ErrUserAccountExpired,
@@ -680,7 +803,6 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 		e.SendJsonErr(w)
 		return
 	case strings.Contains(err.Error(), ErrMismatchAuthcode):
-		s.logger.Error(err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    ErrMismatchAuthcode,
@@ -688,7 +810,6 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 		e.SendJsonErr(w)
 		return
 	case strings.Contains(err.Error(), ErrMismatchClientid):
-		s.logger.Error(err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    ErrMismatchClientid,
@@ -696,7 +817,6 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 		e.SendJsonErr(w)
 		return
 	case strings.Contains(err.Error(), ErrMismatchRedirect):
-		s.logger.Error(err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    ErrMismatchRedirect,
@@ -706,10 +826,9 @@ func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
 
 		// 500
 	default:
-		s.logger.Error(err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
-			Message:    "internal server error: unable to retrieve user data from auth code",
+			Message:    "internal server error",
 		}
 		e.SendJsonErr(w)
 		return
