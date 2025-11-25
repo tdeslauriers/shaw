@@ -11,7 +11,6 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
-	"github.com/tdeslauriers/ran/pkg/scopes"
 	ran "github.com/tdeslauriers/ran/pkg/scopes"
 	"github.com/tdeslauriers/shaw/internal/util"
 )
@@ -20,10 +19,10 @@ import (
 type ScopesService interface {
 
 	// GetAll returns all scopes from the s2s service.
-	GetAll(ctx context.Context) ([]scopes.Scope, error)
+	GetAll(ctx context.Context) ([]ran.Scope, error)
 
 	// GetScopes gets scopes specific to a service for a given username.
-	GetUserScopes(ctx context.Context, user, service string) ([]scopes.Scope, error)
+	GetUserScopes(ctx context.Context, user, service string) ([]ran.Scope, error)
 }
 
 func NewScopesService(
