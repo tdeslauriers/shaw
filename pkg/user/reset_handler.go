@@ -21,6 +21,7 @@ type ResetHandler interface {
 
 // NewResetHandler creates a pointer to a new concrete implementation of the ResetHandler interface
 func NewResetHandler(s Service, s2s jwt.Verifier, iam jwt.Verifier) ResetHandler {
+	
 	return &resetHandler{
 		service:     s,
 		s2sVerifier: s2s,
@@ -34,8 +35,7 @@ func NewResetHandler(s Service, s2s jwt.Verifier, iam jwt.Verifier) ResetHandler
 
 var _ ResetHandler = (*resetHandler)(nil)
 
-// resetHandler is the concrete implementation of the ResetHandler interface which
-// handles the reset request from users where the user knows their current password
+// resetHandler is the concrete implementation of the ResetHandler interface which handles the reset request from users where the user knows their current password
 type resetHandler struct {
 	service Service
 
@@ -73,6 +73,7 @@ func (h *resetHandler) HandleReset(w http.ResponseWriter, r *http.Request) {
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
+	log = log.With("requesting_service", authedSvc.Claims.Subject)
 
 	// validate iam access token
 	accessToken := r.Header.Get("Authorization")
@@ -115,7 +116,6 @@ func (h *resetHandler) HandleReset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info(fmt.Sprintf("user %s's password was successfully reset.", authorized.Claims.Subject),
-		"requesting_service", authedSvc.Claims.Subject,
 		"actor", authorized.Claims.Subject)
 
 	// return 204

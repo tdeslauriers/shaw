@@ -20,6 +20,7 @@ type ScopesHandler interface {
 
 // NewScopesHandler creates a new user scopes handler interface abstracting a concrete implementation
 func NewScopesHandler(s Service, s2s, iam jwt.Verifier) ScopesHandler {
+	
 	return &scopesHandler{
 		service:     s,
 		s2sVerifier: s2s,
@@ -69,6 +70,7 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
+	log = log.With("requesting_service", authedSvc.Claims.Subject)
 
 	// validate iam token
 	iamToken := r.Header.Get("Authorization")
@@ -105,7 +107,9 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 	// lookup user by slug
 	u, err := h.service.GetUser(ctx, cmd.UserSlug)
 	if err != nil {
-		log.Error("failed to get user for scope update", "err", err.Error())
+		log.Error("failed to get user for scope update",
+			"actor", authorized.Claims.Subject,
+			"err", err.Error())
 		h.service.HandleServiceErr(err, w)
 		return
 	}
@@ -113,14 +117,15 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 	// update user scopes
 	// dont need to check if cmd is empty, empty slice == remove all scopes
 	if err := h.service.UpdateScopes(ctx, u, cmd.ScopeSlugs); err != nil {
-		log.Error("failed to update user scopes", "err", err.Error())
+		log.Error("failed to update user scopes",
+			"actor", authorized.Claims.Subject,
+			"err", err.Error())
 		h.service.HandleServiceErr(err, w)
 		return
 	}
 
 	// log success
 	log.Info(fmt.Sprintf("successfully updated scopes for user %s", u.Username),
-		"requesting_service", authedSvc.Claims.Subject,
 		"actor", authorized.Claims.Subject,
 	)
 

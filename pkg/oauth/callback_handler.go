@@ -38,6 +38,7 @@ type Handler interface {
 // NewHandler creates a new Handler and returns and underlying pointer to a
 // concrete implementation of the Handler interface
 func NewHandler(s Service, u authentication.Service, v jwt.Verifier) Handler {
+	
 	return &handler{
 		oauth:       s,
 		auth:        u,

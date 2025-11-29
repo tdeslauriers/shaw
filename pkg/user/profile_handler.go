@@ -43,18 +43,18 @@ type profileHandler struct {
 // HandleProfile handles the profile request from users
 func (h *profileHandler) HandleProfile(w http.ResponseWriter, r *http.Request) {
 
-	// get telemetry from request
-	tel := connect.ObtainTelemetry(r, h.logger)
-	log := h.logger.With(tel.TelemetryFields()...)
-
 	switch r.Method {
 	case http.MethodGet:
-		h.handleGet(w, r, log)
+		h.handleGet(w, r)
 		return
 	case http.MethodPut:
-		h.handleUpdate(w, r, log)
+		h.handleUpdate(w, r)
 		return
 	default:
+		// get telemetry from request
+		tel := connect.ObtainTelemetry(r, h.logger)
+		log := h.logger.With(tel.TelemetryFields()...)
+
 		log.Error(fmt.Sprintf("unsupported method %s for endpoint %s", r.Method, r.URL.Path))
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusMethodNotAllowed,
@@ -66,7 +66,11 @@ func (h *profileHandler) HandleProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGet handles the get requests for user profile
-func (h *profileHandler) handleGet(w http.ResponseWriter, r *http.Request, log *slog.Logger) {
+func (h *profileHandler) handleGet(w http.ResponseWriter, r *http.Request) {
+
+	// get telemetry from request
+	tel := connect.ObtainTelemetry(r, h.logger)
+	log := h.logger.With(tel.TelemetryFields()...)
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
@@ -76,6 +80,7 @@ func (h *profileHandler) handleGet(w http.ResponseWriter, r *http.Request, log *
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
+	log = log.With("requesting_service", authedSvc.Claims.Subject)
 
 	// validate iam access token
 	accessToken := r.Header.Get("Authorization")
@@ -98,10 +103,7 @@ func (h *profileHandler) handleGet(w http.ResponseWriter, r *http.Request, log *
 		return
 	}
 
-	log.Info(fmt.Sprintf("successfully retrieved user %s profile", u.Username),
-		"actor", authorized.Claims.Subject,
-		"requesting_service", authedSvc.Claims.Subject,
-	)
+	log.Info("user successfully retrieved their profile")
 
 	// respond with user data
 	w.Header().Set("Content-Type", "application/json")
@@ -117,7 +119,11 @@ func (h *profileHandler) handleGet(w http.ResponseWriter, r *http.Request, log *
 }
 
 // handleUpdate handles the update requests for user profile
-func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request, log *slog.Logger) {
+func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
+
+	// get telemetry from request
+	tel := connect.ObtainTelemetry(r, h.logger)
+	log := h.logger.With(tel.TelemetryFields()...)
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
@@ -127,6 +133,7 @@ func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request, lo
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
+	log = log.With("requesting_service", authedSvc.Claims.Subject)
 
 	// validate iam access token
 	accessToken := r.Header.Get("Authorization")
@@ -136,6 +143,7 @@ func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request, lo
 		connect.RespondAuthFailure(connect.User, err, w)
 		return
 	}
+	log = log.With("actor", authorized.Claims.Subject)
 
 	var cmd Profile
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
@@ -162,7 +170,7 @@ func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request, lo
 	// get record data for audit log
 	record, err := h.service.GetProfile(authorized.Claims.Subject)
 	if err != nil {
-		log.Error(fmt.Sprintf("failed to get user  %s's profile", authorized.Claims.Subject), "err", err.Error())
+		log.Error("failed to get user's profile", "err", err.Error())
 		h.service.HandleServiceErr(err, w)
 		return
 	}
@@ -210,23 +218,19 @@ func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request, lo
 
 	if len(changes) > 0 {
 		log = log.With(changes...)
-		log.Info(fmt.Sprintf("successfully updated user %s's profile", authorized.Claims.Subject),
-			"actor", authorized.Claims.Subject,
-			"requesting_service", authedSvc.Claims.Subject)
+		log.Info("user successfully updated their profile")
 	} else {
-		log.Info(fmt.Sprintf("update executed, but no fields changed for for user %s's profile", authorized.Claims.Subject),
-			"actor", authorized.Claims.Subject,
-			"requesting_service", authedSvc.Claims.Subject)
+		log.Info(fmt.Sprintf("update executed, but no fields changed for user %s's profile", authorized.Claims.Subject))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	// respond with success
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(updated); err != nil {
-		h.logger.Error(fmt.Sprintf("failed to json encode user profile: %s", err.Error()))
+		log.Error("failed to json encode user profile update response body object", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
-			Message:    "failed to encode response",
+			Message:    "failed to encode response to json",
 		}
 		e.SendJsonErr(w)
 		return

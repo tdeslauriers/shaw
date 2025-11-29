@@ -22,6 +22,7 @@ type GroupsHandler interface {
 
 // NewUserGroupsHandler creates a new user groups handler interface abstracting a concrete implementation
 func NewGroupsHandler(s Service, s2s, iam jwt.Verifier) GroupsHandler {
+
 	return &groupsHandler{
 		service:     s,
 		s2sVerifier: s2s,
@@ -82,6 +83,7 @@ func (h *groupsHandler) HandleUserGroups(w http.ResponseWriter, r *http.Request)
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
+	log = log.With("requesting_service", authedSvc.Claims.Subject)
 
 	// validate iam token if necessary
 	var authedUser *jwt.Token
@@ -94,6 +96,7 @@ func (h *groupsHandler) HandleUserGroups(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		authedUser = authorized
+		log = log.With("actor", authedUser.Claims.Subject)
 	}
 
 	// get query params
@@ -136,10 +139,7 @@ func (h *groupsHandler) HandleUserGroups(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	log.Info(fmt.Sprintf("successfully retrieved %d users with scopes '%s'", len(users), scopes),
-		"actor", authedUser.Claims.Subject,
-		"requesting_service", authedSvc.Claims.Subject,
-	)
+	log.Info(fmt.Sprintf("successfully retrieved %d users with scopes '%s'", len(users), scopes))
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(users); err != nil {

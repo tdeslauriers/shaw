@@ -45,28 +45,26 @@ type userHandler struct {
 // HandleUser handles the requests for a single user
 func (h *userHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 
-	// get telemetry from request
-	tel := connect.ObtainTelemetry(r, h.logger)
-	log := h.logger.With(tel.TelemetryFields()...)
-
 	switch r.Method {
 	case http.MethodGet:
 
 		// get slug from path if it exists
 		slug := r.PathValue("slug")
 		if slug == "" {
-
-			h.getUsers(w, r, log)
+			h.getUsers(w, r)
 			return
 		} else {
-
-			h.getUser(w, r, tel, log)
+			h.getUser(w, r)
 			return
 		}
 	case http.MethodPut:
-		h.updateUser(w, r, tel, log)
+		h.updateUser(w, r)
 		return
 	default:
+		// get telemetry from request
+		tel := connect.ObtainTelemetry(r, h.logger)
+		log := h.logger.With(tel.TelemetryFields()...)
+
 		log.Error(fmt.Sprintf("unsupported method %s for endpoint %s", r.Method, r.URL.Path))
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusMethodNotAllowed,
@@ -75,10 +73,15 @@ func (h *userHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 		e.SendJsonErr(w)
 		return
 	}
+
 }
 
 // getUsers handles the request for all users
-func (h *userHandler) getUsers(w http.ResponseWriter, r *http.Request, log *slog.Logger) {
+func (h *userHandler) getUsers(w http.ResponseWriter, r *http.Request) {
+
+	// get telemetry from request
+	tel := connect.ObtainTelemetry(r, h.logger)
+	log := h.logger.With(tel.TelemetryFields()...)
 
 	// get correct scopes
 	var requiredScopes []string
@@ -96,6 +99,7 @@ func (h *userHandler) getUsers(w http.ResponseWriter, r *http.Request, log *slog
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
+	log = log.With("requesting_service", authedSvc.Claims.Subject)
 
 	// check if iamVerifier is nil, if not nil, validate user iam token
 	var authedUser *jwt.Token
@@ -108,6 +112,7 @@ func (h *userHandler) getUsers(w http.ResponseWriter, r *http.Request, log *slog
 			return
 		}
 		authedUser = authorized
+		log = log.With("actor", authedUser.Claims.Subject)
 	}
 
 	// get users from user service
@@ -118,9 +123,7 @@ func (h *userHandler) getUsers(w http.ResponseWriter, r *http.Request, log *slog
 		return
 	}
 
-	log.Info(fmt.Sprintf("successfully retrieved %d users", len(users)),
-		"requesting_service", authedSvc.Claims.Subject,
-		"actor", authedUser.Claims.Subject)
+	log.Info(fmt.Sprintf("successfully retrieved %d users", len(users)))
 
 	// send user records response
 	w.Header().Set("Content-Type", "application/json")
@@ -137,7 +140,11 @@ func (h *userHandler) getUsers(w http.ResponseWriter, r *http.Request, log *slog
 }
 
 // getUser handles the get request for a single user record by user slug
-func (h *userHandler) getUser(w http.ResponseWriter, r *http.Request, tel *connect.Telemetry, log *slog.Logger) {
+func (h *userHandler) getUser(w http.ResponseWriter, r *http.Request) {
+
+	// get telemetry from request
+	tel := connect.ObtainTelemetry(r, h.logger)
+	log := h.logger.With(tel.TelemetryFields()...)
 
 	// add telemetry to context for downstream calls + service functions
 	ctx := context.WithValue(r.Context(), connect.TelemetryKey, tel)
@@ -158,6 +165,7 @@ func (h *userHandler) getUser(w http.ResponseWriter, r *http.Request, tel *conne
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
+	log = log.With("requesting_service", authedSvc.Claims.Subject)
 
 	// check if iamVerifier is nil, if not nil, validate user iam token
 	var authedUser *jwt.Token
@@ -170,6 +178,7 @@ func (h *userHandler) getUser(w http.ResponseWriter, r *http.Request, tel *conne
 			return
 		}
 		authedUser = authorized
+		log = log.With("actor", authedUser.Claims.Subject)
 	}
 
 	// get the url slug from the request
@@ -187,19 +196,17 @@ func (h *userHandler) getUser(w http.ResponseWriter, r *http.Request, tel *conne
 	// get user from user service
 	user, err := h.service.GetUser(ctx, slug)
 	if err != nil {
-		log.Error(fmt.Sprintf("failed to get user %s", slug), "err", err.Error())
+		log.Error("failed to get user", "err", err.Error())
 		h.service.HandleServiceErr(err, w)
 		return
 	}
 
-	log.Info(fmt.Sprintf("successfully retrieved user %s", slug),
-		"requesting_service", authedSvc.Claims.Subject,
-		"actor", authedUser.Claims.Subject)
+	log.Info("successfully retrieved user")
 
 	// send user records response
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(user); err != nil {
-		log.Error(fmt.Sprintf("failed to encode user %s data to json", slug), "err", err.Error())
+		log.Error("failed to encode user data to json", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
 			Message:    "failed to encode user data to json",
@@ -211,7 +218,11 @@ func (h *userHandler) getUser(w http.ResponseWriter, r *http.Request, tel *conne
 
 // updateUser handles the update request for a single user record by user slug
 // takes in the subject of an authorized token to log the user update
-func (h *userHandler) updateUser(w http.ResponseWriter, r *http.Request, tel *connect.Telemetry, log *slog.Logger) {
+func (h *userHandler) updateUser(w http.ResponseWriter, r *http.Request) {
+
+	// get telemetry from request
+	tel := connect.ObtainTelemetry(r, h.logger)
+	log := h.logger.With(tel.TelemetryFields()...)
 
 	// add telemetry to context for downstream calls + service functions
 	ctx := context.WithValue(r.Context(), connect.TelemetryKey, tel)
@@ -224,6 +235,7 @@ func (h *userHandler) updateUser(w http.ResponseWriter, r *http.Request, tel *co
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
+	log = log.With("requesting_service", authedSvc.Claims.Subject)
 
 	// check if iamVerifier is nil, if not nil, validate user iam token
 	accessToken := r.Header.Get("Authorization")
@@ -233,6 +245,7 @@ func (h *userHandler) updateUser(w http.ResponseWriter, r *http.Request, tel *co
 		connect.RespondAuthFailure(connect.User, err, w)
 		return
 	}
+	log = log.With("actor", authorized.Claims.Subject)
 
 	// get the url slug from the request
 	slug, err := connect.GetValidSlug(r)
@@ -260,7 +273,7 @@ func (h *userHandler) updateUser(w http.ResponseWriter, r *http.Request, tel *co
 
 	// validate user fields in request body
 	if err := cmd.ValidateCmd(); err != nil {
-		log.Error(fmt.Sprintf("update cmd validation failed for user %s", slug), "err", err.Error())
+		log.Error("update cmd validation failed for user", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnprocessableEntity,
 			Message:    err.Error(),
@@ -272,7 +285,7 @@ func (h *userHandler) updateUser(w http.ResponseWriter, r *http.Request, tel *co
 	// get record data for username/record index and audit log
 	record, err := h.service.GetUser(ctx, slug)
 	if err != nil {
-		log.Error(fmt.Sprintf("failed to get user record %s for update", slug), "err", err.Error())
+		log.Error("failed to get user record for update", "err", err.Error())
 		h.service.HandleServiceErr(err, w)
 		return
 	}
@@ -292,7 +305,7 @@ func (h *userHandler) updateUser(w http.ResponseWriter, r *http.Request, tel *co
 	}
 
 	if err := h.service.Update(&updated); err != nil {
-		log.Error(fmt.Sprintf("failed to update user %s", slug), "err", err.Error())
+		log.Error("failed to update user", "err", err.Error())
 		h.service.HandleServiceErr(err, w)
 		return
 	}
@@ -343,22 +356,16 @@ func (h *userHandler) updateUser(w http.ResponseWriter, r *http.Request, tel *co
 
 	if len(updatedFields) > 0 {
 		log = log.With(updatedFields...)
-		log.Info(fmt.Sprintf("successfully updated user %s", slug),
-			"requesting_service", authedSvc.Claims.Subject,
-			"actor", authorized.Claims.Subject,
-		)
+		log.Info("user successfully updated")
 	} else {
-		log.Warn(fmt.Sprintf("user %s update executed successfully, but no fields were changed", slug),
-			"requesting_service", authedSvc.Claims.Subject,
-			"actor", authorized.Claims.Subject,
-		)
+		log.Warn("user update executed but no fields were changed")
 	}
 
 	// send user record response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(updated); err != nil {
-		log.Error(fmt.Sprintf("failed to json encode updated user %s", slug), "err", err.Error())
+		log.Error("failed to json encode updated user", "err", err.Error())
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusInternalServerError,
 			Message:    "failed to json encode updated user",

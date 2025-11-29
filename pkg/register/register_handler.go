@@ -18,10 +18,12 @@ import (
 var allowed []string = []string{"w:shaw:profile:*"}
 
 type Handler interface {
+	
 	HandleRegistration(w http.ResponseWriter, r *http.Request)
 }
 
 func NewHandler(reg Service, v jwt.Verifier) Handler {
+
 	return &handler{
 		regService: reg,
 		verifier:   v,
