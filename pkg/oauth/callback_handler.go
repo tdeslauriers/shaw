@@ -38,7 +38,7 @@ type Handler interface {
 // NewHandler creates a new Handler and returns and underlying pointer to a
 // concrete implementation of the Handler interface
 func NewHandler(s Service, u authentication.Service, v jwt.Verifier) Handler {
-	
+
 	return &handler{
 		oauth:       s,
 		auth:        u,
@@ -92,7 +92,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// decode request body: auth code, state, nonce, client id, redirect url
-	var cmd types.AccessTokenCmd
+	var cmd AccessTokenCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		log.Error("failed to decode request body", "err", err.Error())
 		e := connect.ErrorHttp{

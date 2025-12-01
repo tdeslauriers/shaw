@@ -12,13 +12,13 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
 	"github.com/tdeslauriers/shaw/internal/util"
+	"github.com/tdeslauriers/shaw/pkg/user"
 )
 
 // service scopes required
 var allowed []string = []string{"w:shaw:profile:*"}
 
 type Handler interface {
-	
 	HandleRegistration(w http.ResponseWriter, r *http.Request)
 }
 
@@ -127,7 +127,7 @@ func (h *handler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// return 201
-	registered := types.UserAccount{
+	registered := user.UserAccount{
 		Username:  cmd.Username,
 		Firstname: cmd.Firstname,
 		Lastname:  cmd.Lastname,

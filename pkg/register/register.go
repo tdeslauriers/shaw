@@ -334,7 +334,7 @@ func (s *service) Register(ctx context.Context, cmd types.UserRegisterCmd) error
 
 	createdAt := time.Now().UTC()
 
-	account := types.UserAccount{
+	account := user.UserAccount{
 		Uuid:           id,
 		Username:       username, // encrypted username
 		UserIndex:      userIndex,
@@ -356,7 +356,7 @@ func (s *service) Register(ctx context.Context, cmd types.UserRegisterCmd) error
 	)
 
 	wgPersist.Add(1)
-	go func(a types.UserAccount, ch chan error, wg *sync.WaitGroup) {
+	go func(a user.UserAccount, ch chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 		// insert user into database
 		query := "INSERT INTO account (uuid, username, user_index, password, firstname, lastname, birth_date, slug, slug_index, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
@@ -370,7 +370,7 @@ func (s *service) Register(ctx context.Context, cmd types.UserRegisterCmd) error
 
 	// persist password to password history table
 	wgPersist.Add(1)
-	go func(a types.UserAccount, ch chan error, wg *sync.WaitGroup) {
+	go func(a user.UserAccount, ch chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
 		pwId, err := uuid.NewRandom()

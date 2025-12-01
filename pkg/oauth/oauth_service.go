@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
-	"github.com/tdeslauriers/carapace/pkg/session/types"
 	ran "github.com/tdeslauriers/ran/pkg/scopes"
 	"github.com/tdeslauriers/shaw/internal/util"
 	"github.com/tdeslauriers/shaw/pkg/user"
@@ -50,7 +49,7 @@ type OauthService interface {
 
 	// RetrieveUserData retrieves the user data associated with the auth code, if it exists and is valid.
 	// If any of the data provided in the AccessTokenCmd is invalid, an error is returned.
-	RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, error)
+	RetrieveUserData(cmd AccessTokenCmd) (*OauthUserData, error)
 }
 
 // OauthErrService is an interface for handling errors returned by the service methods and sending the appropriate http response
@@ -482,7 +481,7 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 	return authCode.String(), nil
 }
 
-func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, error) {
+func (s *service) RetrieveUserData(cmd AccessTokenCmd) (*OauthUserData, error) {
 
 	// check for empty fields: redundant check, but good practice
 	if err := cmd.ValidateCmd(); err != nil {
@@ -490,7 +489,7 @@ func (s *service) RetrieveUserData(cmd types.AccessTokenCmd) (*OauthUserData, er
 	}
 
 	// authorization code grant type is the only supported grant type within this service
-	if cmd.Grant != types.AuthorizationCode {
+	if cmd.Grant != AuthorizationCode {
 		return nil, fmt.Errorf("%s for auth code xxxxxx-%s: %s", ErrInvalidGrantType, cmd.AuthCode[len(cmd.AuthCode)-6:], cmd.Grant)
 	}
 

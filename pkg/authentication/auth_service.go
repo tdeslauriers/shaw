@@ -12,10 +12,10 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
-	"github.com/tdeslauriers/carapace/pkg/session/types"
 	"github.com/tdeslauriers/ran/pkg/scopes"
 	"github.com/tdeslauriers/shaw/internal/util"
 	"github.com/tdeslauriers/shaw/pkg/scope"
+	"github.com/tdeslauriers/shaw/pkg/user"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -91,7 +91,7 @@ func (s *authService) ValidateCredentials(username, password string) error {
 		return err
 	}
 
-	var user types.UserAccount
+	var user user.UserAccount
 	qry := `
 		SELECT 
 			uuid,
