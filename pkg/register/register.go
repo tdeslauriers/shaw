@@ -15,7 +15,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
-	ran "github.com/tdeslauriers/ran/pkg/scopes"
+	ran "github.com/tdeslauriers/ran/pkg/api/scopes"
 	"github.com/tdeslauriers/shaw/internal/util"
 	"github.com/tdeslauriers/shaw/pkg/user"
 

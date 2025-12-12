@@ -12,7 +12,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
-	"github.com/tdeslauriers/ran/pkg/scopes"
+	"github.com/tdeslauriers/ran/pkg/api/scopes"
 	"github.com/tdeslauriers/shaw/internal/util"
 	"github.com/tdeslauriers/shaw/pkg/scope"
 	"github.com/tdeslauriers/shaw/pkg/user"

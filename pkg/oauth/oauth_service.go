@@ -14,7 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
-	ran "github.com/tdeslauriers/ran/pkg/scopes"
+	ran "github.com/tdeslauriers/ran/pkg/api/scopes"
 	"github.com/tdeslauriers/shaw/internal/util"
 	"github.com/tdeslauriers/shaw/pkg/user"
 )

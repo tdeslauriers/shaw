@@ -8,7 +8,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/validate"
-	"github.com/tdeslauriers/ran/pkg/scopes"
+	"github.com/tdeslauriers/ran/pkg/api/scopes"
 	"github.com/tdeslauriers/shaw/pkg/scope"
 )
 

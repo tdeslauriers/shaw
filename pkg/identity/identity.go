@@ -144,7 +144,7 @@ func New(config config.Config) (Identity, error) {
 		oathService:     oauth.NewService(repository, indexer, cryptor),
 		registerService: register.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller),
 		userService:     user.NewService(repository, indexer, cryptor, s2sProvider, s2sCaller),
-		cleanup:         schedule.NewCleanup(repository),
+		cleanup:         schedule.NewCleanup(db),
 
 		logger: slog.Default().
 			With(slog.String(util.PackageKey, util.PackageIdentity)).
