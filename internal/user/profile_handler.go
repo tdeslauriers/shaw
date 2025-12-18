@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/shaw/internal/util"
+	api "github.com/tdeslauriers/shaw/pkg/api/user"
 )
 
 // ProfileHandler interface for user profile services
@@ -98,9 +100,30 @@ func (h *profileHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 	// based on a cryptographically signed token value.
 	u, err := h.service.GetProfile(authorized.Claims.Subject)
 	if err != nil {
-		log.Error(fmt.Sprintf("failed to get user profile %s: %s", authorized.Claims.Subject, err.Error()))
-		h.service.HandleServiceErr(err, w)
-		return
+		log.Error("failed to get user profile", "err", err.Error())
+		switch {
+		case strings.Contains(err.Error(), "not found"):
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusNotFound,
+				Message:    err.Error(),
+			}
+			e.SendJsonErr(w)
+			return
+		case strings.Contains(err.Error(), "invalid"):
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusUnprocessableEntity,
+				Message:    err.Error(),
+			}
+			e.SendJsonErr(w)
+			return
+		default:
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "failed to get user profile",
+			}
+			e.SendJsonErr(w)
+			return
+		}
 	}
 
 	log.Info("user successfully retrieved their profile")
@@ -145,7 +168,7 @@ func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	log = log.With("actor", authorized.Claims.Subject)
 
-	var cmd Profile
+	var cmd api.Profile
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		log.Error("failed to decode json update request body", "err", err.Error())
 		e := connect.ErrorHttp{
@@ -170,13 +193,34 @@ func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	// get record data for audit log
 	record, err := h.service.GetProfile(authorized.Claims.Subject)
 	if err != nil {
-		log.Error("failed to get user's profile", "err", err.Error())
-		h.service.HandleServiceErr(err, w)
-		return
+		log.Error("failed to get users profile", "err", err.Error())
+		switch {
+		case strings.Contains(err.Error(), "not found"):
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusNotFound,
+				Message:    err.Error(),
+			}
+			e.SendJsonErr(w)
+			return
+		case strings.Contains(err.Error(), "invalid"):
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusUnprocessableEntity,
+				Message:    err.Error(),
+			}
+			e.SendJsonErr(w)
+			return
+		default:
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "failed to get users profile",
+			}
+			e.SendJsonErr(w)
+			return
+		}
 	}
 
 	// prepare update model
-	updated := Profile{
+	updated := api.Profile{
 		Username:       record.Username, // user not allowed to update username
 		Firstname:      cmd.Firstname,
 		Lastname:       cmd.Lastname,
@@ -190,9 +234,30 @@ func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// update user data
 	if err := h.service.Update(&updated); err != nil {
-		log.Error(fmt.Sprintf("failed to update user %s's profile", authorized.Claims.Subject), "err", err.Error())
-		h.service.HandleServiceErr(err, w)
-		return
+		log.Error("failed to update user's profile", "err", err.Error())
+		switch {
+		case strings.Contains(err.Error(), "not found"):
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusNotFound,
+				Message:    err.Error(),
+			}
+			e.SendJsonErr(w)
+			return
+		case strings.Contains(err.Error(), "invalid"):
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusUnprocessableEntity,
+				Message:    err.Error(),
+			}
+			e.SendJsonErr(w)
+			return
+		default:
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "failed to update user's profile",
+			}
+			e.SendJsonErr(w)
+			return
+		}
 	}
 
 	// audit log

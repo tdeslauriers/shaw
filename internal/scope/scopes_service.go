@@ -26,14 +26,14 @@ type ScopesService interface {
 }
 
 func NewScopesService(
-	db data.SqlRepository,
+	db *sql.DB,
 	i data.Indexer,
 	p provider.S2sTokenProvider,
 	s2s *connect.S2sCaller,
 ) ScopesService {
 
 	return &scopesService{
-		db:      db,
+		db:      NewScopesRepository(db),
 		indexer: i,
 		tkn:     p,
 		s2s:     s2s,
@@ -47,7 +47,7 @@ func NewScopesService(
 var _ ScopesService = (*scopesService)(nil)
 
 type scopesService struct {
-	db      data.SqlRepository
+	db      ScopesRepository
 	indexer data.Indexer
 	tkn     provider.S2sTokenProvider
 	s2s     *connect.S2sCaller
@@ -188,25 +188,10 @@ func (s *scopesService) lookupUserScopes(
 		return
 	}
 
-	qry := `
-		SELECT
-			asp.id,
-			asp.account_uuid,
-			asp.scope_uuid,
-			asp.created_at
-		FROM account_scope asp
-			LEFT OUTER JOIN account a ON asp.account_uuid = a.uuid
-		WHERE a.user_index = ?`
-
-	var scopes []AccountScope
-	if err := s.db.SelectRecords(qry, &scopes, index); err != nil {
-		if err == sql.ErrNoRows {
-			errCh <- fmt.Errorf("no scopes found for user %s: %v", username, err.Error())
-			return
-		} else {
-			errCh <- fmt.Errorf("failed to retrieve scopes for user %s: %v", username, err.Error())
-			return
-		}
+	scopes, err := s.db.FindAccountScopeXrefs(index)
+	if err != nil {
+		errCh <- fmt.Errorf("failed to retrieve scopes for user %s: %v", username, err.Error())
+		return
 	}
 
 	log.Info(fmt.Sprintf("successfully retrieved %d scopes for user %s", len(scopes), username))

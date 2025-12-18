@@ -6,25 +6,25 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 
 	"github.com/tdeslauriers/carapace/pkg/data"
+	"github.com/tdeslauriers/shaw/internal/scope"
 	"github.com/tdeslauriers/shaw/internal/util"
-	"github.com/tdeslauriers/shaw/pkg/scope"
+	api "github.com/tdeslauriers/shaw/pkg/api/user"
 )
 
 // GroupService interface handles services related to groups of users
 type GroupService interface {
 
 	// GetUsersWithScopes returns a list of users who have one of a slice of scopes
-	GetUsersWithScopes(ctx context.Context, scopes []string) ([]Profile, error)
+	GetUsersWithScopes(ctx context.Context, scopes []string) ([]api.Profile, error)
 }
 
 // NewGroupService creates a new GroupService interface by returning a pointer to a new concrete implementation of the GroupService interface
-func NewGroupService(db data.SqlRepository, i data.Indexer, c data.Cryptor, s scope.ScopesService) GroupService {
+func NewGroupService(sql *sql.DB, i data.Indexer, c data.Cryptor, s scope.ScopesService) GroupService {
 	return &groupService{
-		db:      db,
+		db:      NewGroupsRepository(sql),
 		indexer: i,
 		cryptor: c,
 		scopes:  s,
@@ -39,7 +39,7 @@ var _ GroupService = (*groupService)(nil)
 
 // groupService struct is the concrete implementation of the GroupService interface
 type groupService struct {
-	db      data.SqlRepository
+	db      GroupsRepository
 	indexer data.Indexer
 	cryptor data.Cryptor
 	scopes  scope.ScopesService
@@ -59,7 +59,7 @@ func sliceToVariatic[T any](in []T) []interface{} {
 
 // GetUsersWithScopes is the concrete implementation of the interface function
 // that returns a list of users who have one of a slice of scopes
-func (s *groupService) GetUsersWithScopes(ctx context.Context, scopes []string) ([]Profile, error) {
+func (s *groupService) GetUsersWithScopes(ctx context.Context, scopes []string) ([]api.Profile, error) {
 
 	// check that scopes not empty
 	if len(scopes) < 1 {
@@ -94,51 +94,25 @@ func (s *groupService) GetUsersWithScopes(ctx context.Context, scopes []string) 
 	}
 
 	// get users from database
-	// build query
-	var query strings.Builder
-	query.WriteString(`
-					SELECT
-				a.uuid,
-				a.username,
-				a.firstname,
-				a.lastname,
-				a.birth_date,
-				a.slug,
-				a.created_at,
-				a.enabled,
-				a.account_expired,
-				a.account_locked
-			FROM account a 
-				LEFT OUTER JOIN account_scope a_s ON a.uuid = a_s.account_uuid
-			WHERE a_s.scope_uuid IN (`)
-
-	for i := range valid {
-		query.WriteString(`?`)
-		if i < len(valid)-1 {
-			query.WriteString(`, `)
-		}
+	records, err := s.db.FindUsersWithScopes(valid)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get users with scopes from database: %v", err)
 	}
-	query.WriteString(`)`)
-	query.WriteString(` ORDER BY a.lastname, a.firstname ASC`)
 
-	// needs to be this type
-	var records []Profile
-	if err := s.db.SelectRecords(query.String(), &records, sliceToVariatic(valid)...); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("users not found: %v", err)
-		}
-		return nil, fmt.Errorf("failed to execute sql query: %v", err)
+	// no users found
+	if len(records) < 1 {
+		return nil, errors.New("no users found for provided scopes")
 	}
 
 	// de-dupelicate records
-	unique := make(map[string]Profile, len(records))
+	unique := make(map[string]api.Profile, len(records))
 	for _, r := range records {
 		unique[r.Id] = r
 	}
 
 	// convert map to slice of users
 	// decrypt user data
-	users := make([]Profile, 0, len(unique))
+	users := make([]api.Profile, 0, len(unique))
 	for _, u := range unique {
 
 		// decrypt user data
@@ -153,7 +127,7 @@ func (s *groupService) GetUsersWithScopes(ctx context.Context, scopes []string) 
 }
 
 // decryptProfile is a helper function that abstracts the decryption process for user profile data.
-func (s *groupService) decryptProfile(user *Profile) error {
+func (s *groupService) decryptProfile(user *api.Profile) error {
 
 	var (
 		wg      sync.WaitGroup

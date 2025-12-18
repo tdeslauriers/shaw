@@ -13,8 +13,9 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/validate"
 	"github.com/tdeslauriers/ran/pkg/api/scopes"
+	"github.com/tdeslauriers/shaw/internal/scope"
 	"github.com/tdeslauriers/shaw/internal/util"
-	"github.com/tdeslauriers/shaw/pkg/scope"
+	api "github.com/tdeslauriers/shaw/pkg/api/user"
 )
 
 // Service is the interface for the user service functionality like retrieving user data by username from the db.
@@ -22,34 +23,34 @@ type UserService interface {
 
 	// GetProfile retrieves user data by username from peristence.
 	// Note: this will not return the user's scopes
-	GetProfile(username string) (*Profile, error)
+	GetProfile(username string) (*api.Profile, error)
 
 	// GetUsers retrieves all user data from persistence.
-	GetUsers() ([]Profile, error)
+	GetUsers() ([]api.Profile, error)
 
 	// GetUser retrieves user data (including user's scopes) by slug from persistence.
 	GetUser(ctx context.Context, slug string) (*User, error)
 
 	// Update updates the user data in in persistence.
-	Update(user *Profile) error
+	Update(user *api.Profile) error
 
 	// UpdateScopes updates the user's scopes assigned scopes given a command of scope slugs.
 	UpdateScopes(ctx context.Context, user *User, cmd []string) error
 
 	// IsActive checks if the user is active.
-	IsActive(u *Profile) (bool, error)
+	IsActive(u *api.Profile) (bool, error)
 }
 
 // NewUserService creates a new UserService interface by returning a pointer to a new concrete implementation
 func NewUserService(
-	db data.SqlRepository,
+	db *sql.DB,
 	i data.Indexer,
 	c data.Cryptor,
 	s scope.ScopesService,
 ) UserService {
 
 	return &userService{
-		db:     db,
+		db:     NewUserRepository(db),
 		index:  i,
 		crypt:  c,
 		scopes: s,
@@ -62,7 +63,7 @@ func NewUserService(
 
 // userService is the concrete implementation of the UserService interface.
 type userService struct {
-	db     data.SqlRepository
+	db     UserRepository
 	index  data.Indexer
 	crypt  data.Cryptor
 	scopes scope.ScopesService
@@ -71,32 +72,17 @@ type userService struct {
 }
 
 // GetProfile is the concrete implementation of the method which retrieves a user's profile data by username from the database.
-func (s *userService) GetProfile(username string) (*Profile, error) {
+func (s *userService) GetProfile(username string) (*api.Profile, error) {
 	return s.getByUsername(username)
 }
 
 // GetUsers retrieves all user data from the database.
-func (s *userService) GetUsers() ([]Profile, error) {
+func (s *userService) GetUsers() ([]api.Profile, error) {
 
-	var users []Profile
-	qry := `SELECT
-				uuid,
-				username,
-				firstname,
-				lastname,
-				birth_date,
-				slug,
-				created_at,
-				enabled,
-				account_expired,
-				account_locked
-			FROM account
-			ORDER BY lastname, firstname ASC`
-	if err := s.db.SelectRecords(qry, &users); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, errors.New(ErrUsersNotFound)
-		}
-		return nil, fmt.Errorf("failed to retrieve user records: %v", err)
+	// retrieve all users from persistence
+	users, err := s.db.FindAllUsers()
+	if err != nil {
+		return nil, err
 	}
 
 	// decrypt user data
@@ -163,7 +149,7 @@ func (s *userService) GetUser(ctx context.Context, slug string) (*User, error) {
 	}, nil
 }
 
-func (s *userService) getByUsername(username string) (*Profile, error) {
+func (s *userService) getByUsername(username string) (*api.Profile, error) {
 
 	// lightweight input validation
 	if len(username) < 5 || len(username) > 255 {
@@ -176,36 +162,21 @@ func (s *userService) getByUsername(username string) (*Profile, error) {
 		return nil, err
 	}
 
-	// retrieve user record
-	qry := `SELECT 
-				uuid, 
-				username, 
-				firstname, 
-				lastname,
-				birth_date,
-				slug,
-				created_at, 
-				enabled,
-				account_expired,
-				account_locked 
-			FROM account 
-			WHERE user_index = ?`
-	var user Profile
-	if err := s.db.SelectRecord(qry, &user, index); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("%s in db for username: %s", ErrUserNotFound, username)
-		}
-		return nil, fmt.Errorf("failed to retrieve user %s data: %v", username, err)
-	}
-
-	if err := s.decryptProfile(&user); err != nil {
+	// retrieve user record from persistence
+	user, err := s.db.FindUserByIndex(index)
+	if err != nil {
 		return nil, err
 	}
 
-	return &user, nil
+	// decrypt user data
+	if err := s.decryptProfile(user); err != nil {
+		return nil, err
+	}
+
+	return user, nil
 }
 
-func (s *userService) getBySlug(slug string) (*Profile, error) {
+func (s *userService) getBySlug(slug string) (*api.Profile, error) {
 
 	// lightweight validatino of slug
 	if len(slug) < 16 || len(slug) > 64 {
@@ -218,37 +189,22 @@ func (s *userService) getBySlug(slug string) (*Profile, error) {
 		return nil, err
 	}
 
-	// retrieve user record
-	qry := `SELECT 
-				uuid, 
-				username, 
-				firstname, 
-				lastname,
-				birth_date,
-				slug,
-				created_at, 
-				enabled,
-				account_expired,
-				account_locked 
-			FROM account 
-			WHERE slug_index = ?`
-	var user Profile
-	if err := s.db.SelectRecord(qry, &user, slugIndex); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("%s in db for slug: %s", ErrUserNotFound, slug)
-		}
-		return nil, fmt.Errorf("failed to retrieve user slug %s data: %v", slug, err)
-	}
-
-	if err := s.decryptProfile(&user); err != nil {
+	// retrieve user account record from persistence
+	user, err := s.db.FindUserByIndex(slugIndex)
+	if err != nil {
 		return nil, err
 	}
 
-	return &user, nil
+	// decrypt user data
+	if err := s.decryptProfile(user); err != nil {
+		return nil, err
+	}
+
+	return user, nil
 }
 
 // Update updates the user data in the database.
-func (s *userService) Update(user *Profile) error {
+func (s *userService) Update(user *api.Profile) error {
 
 	// validate user data before updating
 	// redundant, but necessary for data integrity and good practice
@@ -322,16 +278,18 @@ func (s *userService) Update(user *Profile) error {
 	}
 
 	// update user data
-	qry := `UPDATE account
-			SET firstname = ?,
-				lastname = ?,
-				birth_date = ?,
-				enabled = ?,
-				account_locked = ?,
-				account_expired = ?
-			WHERE user_index = ?`
-	if err := s.db.UpdateRecord(qry, encFirstname, encLastname, encBirthDate, user.Enabled, user.AccountLocked, user.AccountExpired, index); err != nil {
-		return fmt.Errorf("failed to update user %s data: %v", user.Username, err)
+	if err := s.db.UpdateUser(
+		&api.Profile{
+			Firstname:      encFirstname,
+			Lastname:       encLastname,
+			BirthDate:      encBirthDate,
+			Enabled:        user.Enabled,
+			AccountLocked:  user.AccountLocked,
+			AccountExpired: user.AccountExpired,
+		},
+		index,
+	); err != nil {
+		return err
 	}
 
 	return nil
@@ -429,12 +387,8 @@ func (s *userService) UpdateScopes(ctx context.Context, user *User, cmd []string
 				go func(id string, ch chan error, wg *sync.WaitGroup) {
 					defer wg.Done()
 
-					query := `
-						DELETE 
-						FROM account_scope 
-						WHERE account_uuid = ? AND scope_uuid = ?`
-					if err := s.db.DeleteRecord(query, user.Id, id); err != nil {
-						ch <- fmt.Errorf("failed to remove scope %s from user %s: %v", id, user.Username, err)
+					if err := s.db.DeleteAccountScopeXref(user.Id, id); err != nil {
+						ch <- fmt.Errorf("failed to remove account %s - %s scope xref: %v", user.Id, id, err)
 					}
 
 					s.logger.Info(fmt.Sprintf("removed scope %s from user %s", id, user.Username))
@@ -450,16 +404,13 @@ func (s *userService) UpdateScopes(ctx context.Context, user *User, cmd []string
 					defer wg.Done()
 
 					xref := AccountScopeXref{
+						Id:        0, // auto-increment
 						AccountId: user.Id,
 						ScopeId:   id,
 						CreatedAt: data.CustomTime{Time: time.Now().UTC()},
 					}
 
-					query := `
-						INSERT 
-						INTO account_scope (account_uuid, scope_uuid, created_at)
-						VALUES (?, ?, ?)`
-					if err := s.db.InsertRecord(query, xref); err != nil {
+					if err := s.db.InsertAccountScopeXref(xref); err != nil {
 						ch <- fmt.Errorf("failed to add scope %s to user %s: %v", id, user.Username, err)
 					}
 
@@ -492,7 +443,7 @@ func (s *userService) UpdateScopes(ctx context.Context, user *User, cmd []string
 }
 
 // IsActive checks if the user is active.
-func (s *userService) IsActive(u *Profile) (bool, error) {
+func (s *userService) IsActive(u *api.Profile) (bool, error) {
 
 	if !u.Enabled {
 		return false, fmt.Errorf("%s: %s", ErrUserDisabled, u.Username)
@@ -510,7 +461,7 @@ func (s *userService) IsActive(u *Profile) (bool, error) {
 }
 
 // decryptProfile is a helper function that abstracts the decryption process for user profile data.
-func (s *userService) decryptProfile(user *Profile) error {
+func (s *userService) decryptProfile(user *api.Profile) error {
 
 	var (
 		wg      sync.WaitGroup

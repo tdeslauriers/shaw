@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
@@ -20,7 +21,7 @@ type ScopesHandler interface {
 
 // NewScopesHandler creates a new user scopes handler interface abstracting a concrete implementation
 func NewScopesHandler(s Service, s2s, iam jwt.Verifier) ScopesHandler {
-	
+
 	return &scopesHandler{
 		service:     s,
 		s2sVerifier: s2s,
@@ -80,6 +81,7 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 		connect.RespondAuthFailure(connect.User, err, w)
 		return
 	}
+	log = log.With("actor", authorized.Claims.Subject)
 
 	// decode request body
 	var cmd UserScopesCmd
@@ -107,10 +109,8 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 	// lookup user by slug
 	u, err := h.service.GetUser(ctx, cmd.UserSlug)
 	if err != nil {
-		log.Error("failed to get user for scope update",
-			"actor", authorized.Claims.Subject,
-			"err", err.Error())
-		h.service.HandleServiceErr(err, w)
+		log.Error("failed to get user for scope update", "err", err.Error())
+
 		return
 	}
 
@@ -120,14 +120,26 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 		log.Error("failed to update user scopes",
 			"actor", authorized.Claims.Subject,
 			"err", err.Error())
-		h.service.HandleServiceErr(err, w)
-		return
+		switch {
+		case strings.Contains(err.Error(), "invalid"):
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusUnprocessableEntity,
+				Message:    err.Error(),
+			}
+			e.SendJsonErr(w)
+			return
+		default:
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "failed to get users profile",
+			}
+			e.SendJsonErr(w)
+			return
+		}
 	}
 
 	// log success
-	log.Info(fmt.Sprintf("successfully updated scopes for user %s", u.Username),
-		"actor", authorized.Claims.Subject,
-	)
+	log.Info(fmt.Sprintf("successfully updated scopes for user %s", u.Username))
 
 	// respond 204
 	w.WriteHeader(http.StatusNoContent)

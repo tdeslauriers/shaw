@@ -14,10 +14,10 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
-	"github.com/tdeslauriers/carapace/pkg/session/types"
 	ran "github.com/tdeslauriers/ran/pkg/api/scopes"
+	"github.com/tdeslauriers/shaw/internal/user"
 	"github.com/tdeslauriers/shaw/internal/util"
-	"github.com/tdeslauriers/shaw/pkg/user"
+	api "github.com/tdeslauriers/shaw/pkg/api/register"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -26,18 +26,19 @@ var defaultScopes []string = []string{"r:shaw:profile:*", "w:shaw:profile:*", "r
 
 type Service interface {
 	// Register registers a new user account and creates appropriate xrefs for default scopes and client(s)
-	Register(ctx context.Context, cmd types.UserRegisterCmd) error
+	Register(ctx context.Context, cmd api.UserRegisterCmd) error
 }
 
 func NewService(
-	db data.SqlRepository,
+	db *sql.DB,
 	c data.Cryptor,
 	i data.Indexer,
 	p provider.S2sTokenProvider,
 	s2s *connect.S2sCaller,
 ) Service {
+
 	return &service{
-		db:      db,
+		db:      NewRegisterRepository(db),
 		cipher:  c,
 		indexer: i,
 		tkn:     p,
@@ -52,7 +53,7 @@ func NewService(
 var _ Service = (*service)(nil)
 
 type service struct {
-	db      data.SqlRepository
+	db      RegisterRepsoitory
 	cipher  data.Cryptor
 	indexer data.Indexer
 	tkn     provider.S2sTokenProvider
@@ -76,7 +77,7 @@ const (
 )
 
 // Register implements the RegistrationService interface
-func (s *service) Register(ctx context.Context, cmd types.UserRegisterCmd) error {
+func (s *service) Register(ctx context.Context, cmd api.UserRegisterCmd) error {
 
 	// create local logger for this function with telemetry fields
 	log := s.logger
@@ -103,19 +104,20 @@ func (s *service) Register(ctx context.Context, cmd types.UserRegisterCmd) error
 
 	// lookup user name and client id first
 	// if user name exists, or client name does not exist, return error
-	var wgCheck sync.WaitGroup
-	checkErrChan := make(chan error, 2)
+	var (
+		wgCheck      sync.WaitGroup
+		checkErrChan = make(chan error, 2)
 
-	// client lookup for client id used in xref creation
-	var client types.IdentityClient
+		// client lookup for client id used in xref creation
+		client IdentityClient
+	)
 
 	// check if user exists
 	wgCheck.Add(1)
 	go func(idx string, ch chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
-		query := "SELECT EXISTS(SELECT 1 from account WHERE user_index = ?) AS record_exists"
-		exists, err := s.db.SelectExists(query, idx)
+		exists, err := s.db.FindUserExists(idx)
 		if err != nil {
 			log.Error("failed db call to check if user exists", "err", err.Error())
 			ch <- fmt.Errorf("failed db lookup to check if user exists")
@@ -128,31 +130,35 @@ func (s *service) Register(ctx context.Context, cmd types.UserRegisterCmd) error
 
 	// check if client exists
 	wgCheck.Add(1)
-	go func(c *types.IdentityClient, ch chan error, wg *sync.WaitGroup) {
+	go func(c *IdentityClient, ch chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
-		query := "SELECT uuid, client_id, client_name, description, created_at, enabled, client_expired, client_locked FROM client WHERE client_id = ?"
-		if err := s.db.SelectRecord(query, c, cmd.ClientId); err != nil {
+		iamClient, err := s.db.FindClientById(cmd.ClientId)
+		if err != nil {
 			if err == sql.ErrNoRows {
-				log.Error(fmt.Sprintf("client id xxxxxx-%s not found", cmd.ClientId[len(cmd.ClientId)-6:]), "err", err.Error())
+				log.Error(fmt.Sprintf("client id %s not found", cmd.ClientId), "err", err.Error())
 				ch <- errors.New(BuildUserErrMsg)
 			} else {
-				log.Error(fmt.Sprintf("failed to lookup client record for client id %s", cmd.ClientId[len(cmd.ClientId)-6:]), "err", err.Error())
+				log.Error(fmt.Sprintf("failed to lookup client record for client id %s", cmd.ClientId), "err", err.Error())
 				ch <- errors.New(BuildUserErrMsg)
 			}
+			return
 		}
 
-		if !c.Enabled {
-			log.Error(fmt.Sprintf("client id xxxxxx-%s is disabled", cmd.ClientId[len(cmd.ClientId)-6:]))
+		// set client to value retrieved from db
+		*c = *iamClient
+
+		if !iamClient.Enabled {
+			log.Error(fmt.Sprintf("client id %s is disabled", cmd.ClientId))
 			ch <- errors.New("registration failed because client is disabled")
 		}
 
-		if c.ClientExpired {
-			log.Error(fmt.Sprintf("client id xxxxxx-%s is expired", cmd.ClientId[len(cmd.ClientId)-6:]))
+		if iamClient.ClientExpired {
+			log.Error(fmt.Sprintf("client id %s is expired", cmd.ClientId))
 			ch <- errors.New("registration failed because client is expired")
 		}
 
-		if c.ClientLocked {
+		if iamClient.ClientLocked {
 			log.Error(fmt.Sprintf("client id xxxxxx-%s is locked", cmd.ClientId[len(cmd.ClientId)-6:]))
 			ch <- errors.New("registration failed because client is locked")
 		}
@@ -358,13 +364,14 @@ func (s *service) Register(ctx context.Context, cmd types.UserRegisterCmd) error
 	wgPersist.Add(1)
 	go func(a user.UserAccount, ch chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
+
 		// insert user into database
-		query := "INSERT INTO account (uuid, username, user_index, password, firstname, lastname, birth_date, slug, slug_index, created_at, enabled, account_expired, account_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-		if err := s.db.InsertRecord(query, a); err != nil {
+		if err := s.db.InsertUserAccount(a); err != nil {
 			log.Error(fmt.Sprintf("failed to insert (%s) user record into account table in db", cmd.Username), "err", err.Error())
 			ch <- errors.New(BuildUserErrMsg)
 			return
 		}
+
 		log.Info(fmt.Sprintf("user %s successfully saved in account table", cmd.Username))
 	}(account, persistErrChan, &wgPersist)
 
@@ -386,8 +393,7 @@ func (s *service) Register(ctx context.Context, cmd types.UserRegisterCmd) error
 			AccountId: a.Uuid,
 		}
 
-		query := "INSERT INTO password_history (uuid, password, updated, account_uuid) VALUES (?, ?, ?, ?)"
-		if err := s.db.InsertRecord(query, history); err != nil {
+		if err := s.db.InsertPasswordHistory(history); err != nil {
 			ch <- fmt.Errorf("failed to insert password history record for registering user %s", cmd.Username)
 			return
 		}
@@ -451,40 +457,38 @@ func (s *service) Register(ctx context.Context, cmd types.UserRegisterCmd) error
 	for _, scope := range defaults {
 
 		wgXref.Add(1)
-		go func(id, created string, scope ran.Scope, ch chan error, wg *sync.WaitGroup) {
+		go func(id string, created time.Time, scope ran.Scope, ch chan error, wg *sync.WaitGroup) {
 			defer wg.Done()
 
-			xref := types.AccountScopeXref{
-				Id:          0,  // auto increment
-				AccountUuid: id, // user id from above
-				ScopeUuid:   scope.Uuid,
-				CreatedAt:   created,
+			xref := user.AccountScopeXref{
+				Id:        0,  // auto increment
+				AccountId: id, // user id from above
+				ScopeId:   scope.Uuid,
+				CreatedAt: data.CustomTime{Time: created},
 			}
 
-			query := "INSERT INTO account_scope (id, account_uuid, scope_uuid, created_at) VALUES (?, ?, ?, ?)"
-			if err := s.db.InsertRecord(query, xref); err != nil {
+			if err := s.db.InsertAccountScopeXref(xref); err != nil {
 				ch <- fmt.Errorf("failed to create/persist xref record for %s - %s: %v", cmd.Username, scope.Name, err)
 				return
 			}
 
 			log.Info(fmt.Sprintf("user %s successfully assigned default scope %s", cmd.Username, scope.Name))
-		}(id, createdAt.Format("2006-01-02 15:04:05"), scope, xrefErrChan, &wgXref)
+		}(id, createdAt, scope, xrefErrChan, &wgXref)
 	}
 
 	// Associate user with client
 	wgXref.Add(1)
-	go func(id, created string, c types.IdentityClient, ch chan error, wg *sync.WaitGroup) {
+	go func(id, created string, c IdentityClient, ch chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
-		xref := types.UserAccountClientXref{
+		xref := AccountClientXref{
 			Id:        0,      // auto increment
 			AccountId: id,     // user id from above
 			ClientId:  c.Uuid, // Note: client.Uuid is the identity client record's uuid, not the client_id
 			CreatedAt: created,
 		}
 
-		query := "INSERT INTO account_client (id, account_uuid, client_uuid, created_at) VALUES (?, ?, ?, ?)"
-		if err := s.db.InsertRecord(query, xref); err != nil {
+		if err := s.db.InsertAccountClientXref(xref); err != nil {
 			ch <- fmt.Errorf("failed to associate user %s with client %s: %v", cmd.Username, c.ClientName, err)
 			return
 		}

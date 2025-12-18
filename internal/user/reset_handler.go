@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
@@ -21,7 +22,7 @@ type ResetHandler interface {
 
 // NewResetHandler creates a pointer to a new concrete implementation of the ResetHandler interface
 func NewResetHandler(s Service, s2s jwt.Verifier, iam jwt.Verifier) ResetHandler {
-	
+
 	return &resetHandler{
 		service:     s,
 		s2sVerifier: s2s,
@@ -83,6 +84,7 @@ func (h *resetHandler) HandleReset(w http.ResponseWriter, r *http.Request) {
 		connect.RespondAuthFailure(connect.User, err, w)
 		return
 	}
+	log = log.With("actor", authorized.Claims.Subject)
 
 	// parse request body
 	var cmd profile.ResetCmd
@@ -111,12 +113,35 @@ func (h *resetHandler) HandleReset(w http.ResponseWriter, r *http.Request) {
 	// update password
 	// this function checks if the user exists, is valid, and if the current password is correct
 	if err := h.service.ResetPassword(ctx, authorized.Claims.Subject, cmd); err != nil {
-		h.service.HandleServiceErr(err, w)
-		return
+		log.Error("failed to reset user password", "err", err.Error())
+		switch {
+		case strings.Contains(err.Error(), "disabled"),
+			strings.Contains(err.Error(), "locked"),
+			strings.Contains(err.Error(), "expired"):
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusUnauthorized,
+				Message:    err.Error(),
+			}
+			e.SendJsonErr(w)
+			return
+		case strings.Contains(err.Error(), "invalid"):
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusUnprocessableEntity,
+				Message:    err.Error(),
+			}
+			e.SendJsonErr(w)
+			return
+		default:
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "failed to reset user password",
+			}
+			e.SendJsonErr(w)
+			return
+		}
 	}
 
-	h.logger.Info(fmt.Sprintf("user %s's password was successfully reset.", authorized.Claims.Subject),
-		"actor", authorized.Claims.Subject)
+	h.logger.Info(fmt.Sprintf("user %s's password was successfully reset.", authorized.Claims.Subject))
 
 	// return 204
 	w.WriteHeader(http.StatusNoContent)
