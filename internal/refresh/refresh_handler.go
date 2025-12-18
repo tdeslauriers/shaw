@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,9 +15,9 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
+	"github.com/tdeslauriers/shaw/internal/user"
 	"github.com/tdeslauriers/shaw/internal/util"
 	"github.com/tdeslauriers/shaw/pkg/authentication"
-	"github.com/tdeslauriers/shaw/pkg/user"
 )
 
 // service scopes required
@@ -132,8 +133,29 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	u, err := h.user.GetProfile(refresh.Username)
 	if err != nil {
 		log.Error(fmt.Sprintf("failed to get user %s data", refresh.Username), "err", err.Error())
-		h.user.HandleServiceErr(err, w)
-		return
+		switch {
+		case strings.Contains(err.Error(), "not found"):
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusNotFound,
+				Message:    err.Error(),
+			}
+			e.SendJsonErr(w)
+			return
+		case strings.Contains(err.Error(), "invalid"):
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusUnprocessableEntity,
+				Message:    err.Error(),
+			}
+			e.SendJsonErr(w)
+			return
+		default:
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "failed to get user",
+			}
+			e.SendJsonErr(w)
+			return
+		}
 	}
 
 	// check if user is (still) active

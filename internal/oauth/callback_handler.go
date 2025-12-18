@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,6 +15,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
 	"github.com/tdeslauriers/shaw/internal/util"
+	"github.com/tdeslauriers/shaw/pkg/api/oauth"
 	"github.com/tdeslauriers/shaw/pkg/authentication"
 )
 
@@ -37,7 +39,7 @@ type Handler interface {
 
 // NewHandler creates a new Handler and returns and underlying pointer to a
 // concrete implementation of the Handler interface
-func NewHandler(s Service, u authentication.Service, v jwt.Verifier) Handler {
+func NewHandler(s OauthService, u authentication.Service, v jwt.Verifier) Handler {
 
 	return &handler{
 		oauth:       s,
@@ -56,7 +58,7 @@ var _ Handler = (*handler)(nil)
 // handles the callback request from the client after the user has authenticated, exchanging
 // the auth code for the access token and id token, and returning them to the client
 type handler struct {
-	oauth       Service
+	oauth       OauthService
 	auth        authentication.Service
 	s2sVerifier jwt.Verifier
 
@@ -92,7 +94,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// decode request body: auth code, state, nonce, client id, redirect url
-	var cmd AccessTokenCmd
+	var cmd oauth.AccessTokenCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		log.Error("failed to decode request body", "err", err.Error())
 		e := connect.ErrorHttp{
@@ -118,8 +120,49 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	userData, err := h.oauth.RetrieveUserData(cmd)
 	if err != nil {
 		log.Error("failed to retrieve user data for callback command", "err", err.Error())
-		h.oauth.HandleServiceErr(err, w)
-		return
+		switch {
+		// 400
+		case strings.Contains(err.Error(), ErrValidateAuthCode):
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusBadRequest,
+				Message:    ErrValidateAuthCode,
+			}
+			e.SendJsonErr(w)
+			return
+		// 401
+		case strings.Contains(err.Error(), ErrInvalidGrantType),
+			strings.Contains(err.Error(), ErrAuthcodeRevoked),
+			strings.Contains(err.Error(), ErrAuthcodeClaimed),
+			strings.Contains(err.Error(), ErrAuthcodeExpired),
+			strings.Contains(err.Error(), ErrUserDisabled),
+			strings.Contains(err.Error(), ErrUserAccountLocked),
+			strings.Contains(err.Error(), ErrUserAccountExpired),
+			strings.Contains(err.Error(), ErrMismatchAuthcode),
+			strings.Contains(err.Error(), ErrMismatchClientid),
+			strings.Contains(err.Error(), ErrMismatchRedirect):
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusUnauthorized,
+				Message:    err.Error(),
+			}
+			e.SendJsonErr(w)
+			return
+		//404
+		case strings.Contains(err.Error(), ErrIndexNotFound):
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusUnauthorized,
+				Message:    ErrIndexNotFound,
+			}
+			e.SendJsonErr(w)
+			return
+		// 500
+		default:
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "internal server error",
+			}
+			e.SendJsonErr(w)
+			return
+		}
 	}
 
 	// set up jwt claims fields

@@ -16,17 +16,12 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/data"
 	ran "github.com/tdeslauriers/ran/pkg/api/scopes"
 	"github.com/tdeslauriers/shaw/internal/util"
-	"github.com/tdeslauriers/shaw/pkg/user"
+	"github.com/tdeslauriers/shaw/pkg/api/oauth"
 )
 
-type Service interface {
-	OauthService
-	OauthErrService
-}
-
-func NewService(db data.SqlRepository, i data.Indexer, c data.Cryptor) Service {
-	return &service{
-		db:      db,
+func NewOauthService(db *sql.DB, i data.Indexer, c data.Cryptor) OauthService {
+	return &oauthService{
+		db:      NewOAuthRepository(db),
 		indexer: i,
 		cryptor: c,
 
@@ -36,6 +31,7 @@ func NewService(db data.SqlRepository, i data.Indexer, c data.Cryptor) Service {
 	}
 }
 
+// OauthService is the interface for the oauth service functionality like validating clients and redirect urls, generating auth codes, and retrieving user data associated with an auth code.
 type OauthService interface {
 	// IsVaildRedirect validates the client and redirect url exist, are linked, and are enabled/not expired/not locked
 	IsValidRedirect(clientid, url string) (bool, error)
@@ -49,7 +45,7 @@ type OauthService interface {
 
 	// RetrieveUserData retrieves the user data associated with the auth code, if it exists and is valid.
 	// If any of the data provided in the AccessTokenCmd is invalid, an error is returned.
-	RetrieveUserData(cmd AccessTokenCmd) (*OauthUserData, error)
+	RetrieveUserData(cmd oauth.AccessTokenCmd) (*OauthUserData, error)
 }
 
 // OauthErrService is an interface for handling errors returned by the service methods and sending the appropriate http response
@@ -58,10 +54,11 @@ type OauthErrService interface {
 	HandleServiceErr(err error, w http.ResponseWriter)
 }
 
-var _ Service = (*service)(nil)
+var _ OauthService = (*oauthService)(nil)
 
-type service struct {
-	db      data.SqlRepository
+// oauthService is the concrete implementation of the OauthService interface
+type oauthService struct {
+	db      OAuthRepository
 	indexer data.Indexer
 	cryptor data.Cryptor
 
@@ -69,7 +66,7 @@ type service struct {
 }
 
 // IsValidRedirect implements the OauthFlowService interface
-func (s *service) IsValidRedirect(clientId, redirect string) (bool, error) {
+func (s *oauthService) IsValidRedirect(clientId, redirect string) (bool, error) {
 
 	// remove any query params from redirect url
 	parsed, err := url.Parse(redirect)
@@ -84,21 +81,8 @@ func (s *service) IsValidRedirect(clientId, redirect string) (bool, error) {
 	}
 
 	// query db for client and redirect
-	qry := `
-		SELECT
-			c.uuid,
-			c.client_id,
-			c.enabled AS client_enabled,
-			c.client_expired AS client_expired, 
-			c.client_locked AS client_locked,
-			r.redirect_url,
-			r.enabled AS redirect_enabled
-		FROM client c
-			LEFT OUTER JOIN redirect r ON c.uuid = r.client_uuid
-		WHERE c.client_id = ? AND r.redirect_url = ?`
-
-	var result ClientRedirect
-	if err := s.db.SelectRecord(qry, &result, clientId, snipped.String()); err != nil {
+	result, err := s.db.FindClientRedirect(clientId, snipped.String())
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return false, errors.New("client/redirect pair not found")
 		} else {
@@ -127,7 +111,7 @@ func (s *service) IsValidRedirect(clientId, redirect string) (bool, error) {
 }
 
 // IsValidClient implements the OauthFlowService interface
-func (s *service) IsValidClient(clientId, username string) (bool, error) {
+func (s *oauthService) IsValidClient(clientId, username string) (bool, error) {
 
 	// re-generate user index
 	index, err := s.indexer.ObtainBlindIndex(username)
@@ -136,26 +120,8 @@ func (s *service) IsValidClient(clientId, username string) (bool, error) {
 	}
 
 	// query db for client and user index association
-	qry := `
-		SELECT
-			a.uuid AS account_uuid,
-			a.user_index,
-			a.enabled as account_enabled,
-			a.account_expired,
-			a.account_locked,
-			c.uuid AS client_uuid,
-			c.client_id,
-			c.enabled AS client_enabled,
-			c.client_expired,
-			c.client_locked
-		FROM account a
-			LEFT OUTER JOIN account_client ac ON a.uuid = ac.account_uuid
-			LEFT OUTER JOIN client c ON ac.client_uuid = c.uuid
-		WHERE a.user_index = ? 
-			AND c.client_id = ?`
-
-	var result AccountClient
-	if err := s.db.SelectRecord(qry, &result, index, clientId); err != nil {
+	result, err := s.db.FindAccountClient(index, clientId)
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return false, fmt.Errorf("user (%s) / client (%s) association not found", username, clientId)
 		} else {
@@ -194,7 +160,7 @@ func (s *service) IsValidClient(clientId, username string) (bool, error) {
 }
 
 // GenerateAuthCode implements the OauthFlowService interface
-func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, scopes []ran.Scope) (string, error) {
+func (s *oauthService) GenerateAuthCode(username, nonce, clientId, redirect string, scopes []ran.Scope) (string, error) {
 
 	// check for empty fields: redundant check, but good practice
 	if username == "" || nonce == "" || clientId == "" || redirect == "" || len(scopes) == 0 {
@@ -244,9 +210,8 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 		}
 
 		// only need the user uuid
-		qry := `SELECT uuid, username, user_index, password, firstname, lastname, birth_date, slug, slug_index, created_at, enabled, account_expired, account_locked FROM account WHERE user_index = ?`
-		var user user.UserAccount
-		if err := s.db.SelectRecord(qry, &user, userIndex); err != nil {
+		user, err := s.db.FindUserAccount(userIndex)
+		if err != nil {
 			errs <- fmt.Errorf("failed to retrieve user uuid for %s: %v", username, err)
 		}
 
@@ -461,27 +426,25 @@ func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, s
 		Revoked:       false,
 	}
 
+	if err := s.db.InsertAuthcode(code); err != nil {
+		return "", fmt.Errorf("failed to insert authcode record for %s into db: %v", username, err)
+	}
+
 	xref := AuthcodeAccount{
 		AuthcodeUuid: code.Id,
 		AccountUuid:  userId,
 		CreatedAt:    createdAt.Format("2006-01-02 15:04:05"),
 	}
 
-	codeQuery := `INSERT into authcode (uuid, authcode_index, authcode, nonce, client_uuid, redirect_url, scopes, created_at, claimed, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	if err := s.db.InsertRecord(codeQuery, code); err != nil {
-		return "", fmt.Errorf("failed to insert authcode record for %s into db: %v", username, err)
-	}
-
 	// cannot use concurrency because of foreign key constraints parent table uuids.
-	xrefQuery := `INSERT into authcode_account (id, authcode_uuid, account_uuid, created_at) VALUES (?, ?, ?, ?)`
-	if err := s.db.InsertRecord(xrefQuery, xref); err != nil {
+	if err := s.db.InsertAuthcodeAccountXref(xref); err != nil {
 		return "", fmt.Errorf("failed to insert authcode_account xref record for %s into db: %v", username, err)
 	}
 
 	return authCode.String(), nil
 }
 
-func (s *service) RetrieveUserData(cmd AccessTokenCmd) (*OauthUserData, error) {
+func (s *oauthService) RetrieveUserData(cmd oauth.AccessTokenCmd) (*OauthUserData, error) {
 
 	// check for empty fields: redundant check, but good practice
 	if err := cmd.ValidateCmd(); err != nil {
@@ -489,7 +452,7 @@ func (s *service) RetrieveUserData(cmd AccessTokenCmd) (*OauthUserData, error) {
 	}
 
 	// authorization code grant type is the only supported grant type within this service
-	if cmd.Grant != AuthorizationCode {
+	if cmd.Grant != oauth.AuthorizationCode {
 		return nil, fmt.Errorf("%s for auth code xxxxxx-%s: %s", ErrInvalidGrantType, cmd.AuthCode[len(cmd.AuthCode)-6:], cmd.Grant)
 	}
 
@@ -501,29 +464,8 @@ func (s *service) RetrieveUserData(cmd AccessTokenCmd) (*OauthUserData, error) {
 
 	// pulling back all data for the auth code/account so any errors
 	// can be directly referenced vs a restrictive query
-	qry := `SELECT 
-				a.username, 
-				a.firstname,
-				a.lastname,
-				a.birth_date,
-				a.enabled,
-				a.account_expired,
-				a.account_locked,
-				ac.authcode,
-				ac.nonce,
-				ac.client_uuid,
-				ac.redirect_url,
-				ac.scopes,
-				ac.created_at,
-				ac.claimed, 
-				ac.revoked
-			FROM authcode ac 
-				LEFT OUTER JOIN authcode_account aac ON ac.uuid = aac.authcode_uuid
-				LEFT OUTER JOIN account a ON aac.account_uuid = a.uuid
-			WHERE ac.authcode_index = ?`
-
-	var user OauthUserData
-	if err := s.db.SelectRecord(qry, &user, index); err != nil {
+	user, err := s.db.FindOauthUserData(index)
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("%s: %v", ErrIndexNotFound, err)
 		} else {
@@ -722,7 +664,7 @@ func (s *service) RetrieveUserData(cmd AccessTokenCmd) (*OauthUserData, error) {
 }
 
 // decrypt is a helper function to absract the decryption process for the user data fields
-func (s *service) decrypt(encrypted, errMsg string, clear *[]byte, ch chan error, wg *sync.WaitGroup) {
+func (s *oauthService) decrypt(encrypted, errMsg string, clear *[]byte, ch chan error, wg *sync.WaitGroup) {
 
 	defer wg.Done()
 
@@ -735,7 +677,7 @@ func (s *service) decrypt(encrypted, errMsg string, clear *[]byte, ch chan error
 	*clear = decrypted
 }
 
-func (s *service) HandleServiceErr(err error, w http.ResponseWriter) {
+func (s *oauthService) HandleServiceErr(err error, w http.ResponseWriter) {
 	switch {
 	// 400
 	case strings.Contains(err.Error(), ErrValidateAuthCode):
