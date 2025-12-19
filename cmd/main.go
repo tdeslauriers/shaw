@@ -6,8 +6,8 @@ import (
 	"os"
 
 	"github.com/tdeslauriers/carapace/pkg/config"
+	"github.com/tdeslauriers/shaw/internal/identity"
 	"github.com/tdeslauriers/shaw/internal/util"
-	"github.com/tdeslauriers/shaw/pkg/identity"
 )
 
 func main() {
