@@ -4,7 +4,7 @@ import (
 	"database/sql"
 
 	"github.com/tdeslauriers/carapace/pkg/data"
-	"github.com/tdeslauriers/shaw/internal/user"
+	apiUser "github.com/tdeslauriers/shaw/pkg/api/user"
 )
 
 // OAuthRepository defines the interface for OAuth data operations.
@@ -17,7 +17,7 @@ type OAuthRepository interface {
 	FindAccountClient(userIndex, clientId string) (*AccountClient, error)
 
 	// FindUserAccount retrieves a user account by their index.
-	FindUserAccount(index string) (*user.UserAccount, error)
+	FindUserAccount(index string) (*apiUser.UserAccount, error)
 
 	// FindOauthUserData retrieves OAuth user data by authcode from the account and authcode tables.
 	FindOauthUserData(authCodeIndex string) (*OauthUserData, error)
@@ -100,7 +100,7 @@ func (r *oauthRepository) FindAccountClient(userIndex, clientId string) (*Accoun
 }
 
 // FindUserAccount retrieves a user account by their index from the database.
-func (r *oauthRepository) FindUserAccount(index string) (*user.UserAccount, error) {
+func (r *oauthRepository) FindUserAccount(index string) (*apiUser.UserAccount, error) {
 
 	qry := `
 		SELECT uuid, 
@@ -119,7 +119,7 @@ func (r *oauthRepository) FindUserAccount(index string) (*user.UserAccount, erro
 		FROM account 
 		WHERE user_index = ?`
 
-	acct, err := data.SelectOneRecord[user.UserAccount](r.db, qry, index)
+	acct, err := data.SelectOneRecord[apiUser.UserAccount](r.db, qry, index)
 	if err != nil {
 		return nil, err
 	}

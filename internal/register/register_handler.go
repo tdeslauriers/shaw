@@ -11,8 +11,8 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	util "github.com/tdeslauriers/shaw/internal/definition"
-	"github.com/tdeslauriers/shaw/internal/user"
-	api "github.com/tdeslauriers/shaw/pkg/api/register"
+	apiReg "github.com/tdeslauriers/shaw/pkg/api/register"
+	apiUser "github.com/tdeslauriers/shaw/pkg/api/user"
 )
 
 // service scopes required
@@ -71,7 +71,7 @@ func (h *handler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// decode request body: user registration cmd data
-	var cmd api.UserRegisterCmd
+	var cmd apiReg.UserRegisterCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		log.Error("failed to decode json registration request body", "err", err.Error())
 		e := connect.ErrorHttp{
@@ -127,7 +127,7 @@ func (h *handler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// return 201
-	registered := user.UserAccount{
+	registered := apiUser.UserAccount{
 		Username:  cmd.Username,
 		Firstname: cmd.Firstname,
 		Lastname:  cmd.Lastname,

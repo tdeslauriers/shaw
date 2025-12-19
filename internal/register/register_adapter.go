@@ -5,6 +5,7 @@ import (
 
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/shaw/internal/user"
+	apiUser "github.com/tdeslauriers/shaw/pkg/api/user"
 )
 
 // RegisterRepository handles database operations for user registration
@@ -18,7 +19,7 @@ type RegisterRepsoitory interface {
 	FindClientById(clientId string) (*IdentityClient, error)
 
 	// InsertUserAccount inserts a new user account into the database.
-	InsertUserAccount(account user.UserAccount) error
+	InsertUserAccount(account apiUser.UserAccount) error
 
 	// InsertPasswordHistory inserts a new password history record into the database.
 	InsertPasswordHistory(history user.PasswordHistory) error
@@ -86,7 +87,7 @@ func (r *registerRepository) FindClientById(clientId string) (*IdentityClient, e
 }
 
 // InsertUserAccount inserts a new user account into the database.
-func (r *registerRepository) InsertUserAccount(account user.UserAccount) error {
+func (r *registerRepository) InsertUserAccount(account apiUser.UserAccount) error {
 
 	qry := `
 		INSERT INTO account (

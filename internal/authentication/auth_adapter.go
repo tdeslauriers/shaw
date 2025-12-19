@@ -4,14 +4,14 @@ import (
 	"database/sql"
 
 	"github.com/tdeslauriers/carapace/pkg/data"
-	"github.com/tdeslauriers/shaw/internal/user"
+	apiUser "github.com/tdeslauriers/shaw/pkg/api/user"
 )
 
 // AuthRepository is the interface for persistance operations related to authentication
 type AuthRepository interface {
 
 	// FindUserAccount finds a user account by username blind index
-	FindUserAccount(userIndex string) (*user.UserAccount, error)
+	FindUserAccount(userIndex string) (*apiUser.UserAccount, error)
 }
 
 // NewAuthRepository creates a new implementation of the AuthRepository interface
@@ -31,7 +31,7 @@ type authRepository struct {
 }
 
 // FindUserAccount finds a user account by username blind index
-func (r *authRepository) FindUserAccount(userIndex string) (*user.UserAccount, error) {
+func (r *authRepository) FindUserAccount(userIndex string) (*apiUser.UserAccount, error) {
 
 	qry := `
 		SELECT 
@@ -51,7 +51,7 @@ func (r *authRepository) FindUserAccount(userIndex string) (*user.UserAccount, e
 		FROM account
 		WHERE user_index = ?`
 
-	u, err := data.SelectOneRecord[user.UserAccount](r.db, qry, userIndex)
+	u, err := data.SelectOneRecord[apiUser.UserAccount](r.db, qry, userIndex)
 	if err != nil {
 		return nil, err
 	}

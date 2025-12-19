@@ -17,7 +17,8 @@ import (
 	ran "github.com/tdeslauriers/ran/pkg/api/scopes"
 	util "github.com/tdeslauriers/shaw/internal/definition"
 	"github.com/tdeslauriers/shaw/internal/user"
-	api "github.com/tdeslauriers/shaw/pkg/api/register"
+	apiReg "github.com/tdeslauriers/shaw/pkg/api/register"
+	apiUser "github.com/tdeslauriers/shaw/pkg/api/user"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -26,7 +27,7 @@ var defaultScopes []string = []string{"r:shaw:profile:*", "w:shaw:profile:*", "r
 
 type Service interface {
 	// Register registers a new user account and creates appropriate xrefs for default scopes and client(s)
-	Register(ctx context.Context, cmd api.UserRegisterCmd) error
+	Register(ctx context.Context, cmd apiReg.UserRegisterCmd) error
 }
 
 func NewService(
@@ -77,7 +78,7 @@ const (
 )
 
 // Register implements the RegistrationService interface
-func (s *service) Register(ctx context.Context, cmd api.UserRegisterCmd) error {
+func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) error {
 
 	// create local logger for this function with telemetry fields
 	log := s.logger
@@ -340,7 +341,7 @@ func (s *service) Register(ctx context.Context, cmd api.UserRegisterCmd) error {
 
 	createdAt := time.Now().UTC()
 
-	account := user.UserAccount{
+	account := apiUser.UserAccount{
 		Uuid:           id,
 		Username:       username, // encrypted username
 		UserIndex:      userIndex,
@@ -362,7 +363,7 @@ func (s *service) Register(ctx context.Context, cmd api.UserRegisterCmd) error {
 	)
 
 	wgPersist.Add(1)
-	go func(a user.UserAccount, ch chan error, wg *sync.WaitGroup) {
+	go func(a apiUser.UserAccount, ch chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
 		// insert user into database
@@ -377,7 +378,7 @@ func (s *service) Register(ctx context.Context, cmd api.UserRegisterCmd) error {
 
 	// persist password to password history table
 	wgPersist.Add(1)
-	go func(a user.UserAccount, ch chan error, wg *sync.WaitGroup) {
+	go func(a apiUser.UserAccount, ch chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
 		pwId, err := uuid.NewRandom()
