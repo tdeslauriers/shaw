@@ -12,9 +12,10 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
+	"github.com/tdeslauriers/shaw/internal/authentication"
+	"github.com/tdeslauriers/shaw/internal/oauth"
 	"github.com/tdeslauriers/shaw/internal/util"
-	"github.com/tdeslauriers/shaw/pkg/authentication"
-	"github.com/tdeslauriers/shaw/pkg/oauth"
+	api "github.com/tdeslauriers/shaw/pkg/api/login"
 )
 
 // service scopes required
@@ -84,7 +85,7 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// decode request body: user login cmd data
-	var cmd UserLoginCmd
+	var cmd api.UserLoginCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		log.Error("failed to decode login command request body", "err", err.Error())
 		e := connect.ErrorHttp{

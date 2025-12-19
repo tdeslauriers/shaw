@@ -1,6 +1,8 @@
 package authentication
 
 import (
+	"database/sql"
+
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
@@ -40,7 +42,7 @@ type Service interface {
 
 // NewService creates an implementation of the user authentication service in the carapace session package.
 func NewService(
-	db data.SqlRepository,
+	db *sql.DB,
 	s jwt.Signer,
 	i data.Indexer,
 	c data.Cryptor,

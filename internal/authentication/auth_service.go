@@ -13,9 +13,8 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/ran/pkg/api/scopes"
+	"github.com/tdeslauriers/shaw/internal/scope"
 	"github.com/tdeslauriers/shaw/internal/util"
-	"github.com/tdeslauriers/shaw/pkg/scope"
-	"github.com/tdeslauriers/shaw/pkg/user"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -43,7 +42,7 @@ type AuthService interface {
 
 // NewAuthService creates an implementation of the user authentication service in the carapace session package.
 func NewAuthService(
-	db data.SqlRepository,
+	db *sql.DB,
 	s jwt.Signer,
 	i data.Indexer,
 	p provider.S2sTokenProvider,
@@ -51,7 +50,7 @@ func NewAuthService(
 ) AuthService {
 
 	return &authService{
-		db:      db,
+		db:      NewAuthRepository(db),
 		mint:    s,
 		indexer: i,
 		scopes:  scope.NewScopesService(db, i, p, s2s),
@@ -65,7 +64,7 @@ var _ AuthService = (*authService)(nil)
 
 // authService is a concrete implementation of the user authentication service in the carapace session package.
 type authService struct {
-	db      data.SqlRepository
+	db      AuthRepository
 	mint    jwt.Signer
 	indexer data.Indexer
 	scopes  scope.ScopesService
@@ -91,26 +90,10 @@ func (s *authService) ValidateCredentials(username, password string) error {
 		return err
 	}
 
-	var user user.UserAccount
-	qry := `
-		SELECT 
-			uuid,
-			username,
-			user_index,
-			password,
-			firstname,
-			lastname,
-			birth_date,
-			slug,
-			slug_index,
-			created_at,
-			enabled,
-			account_expired,
-			account_locked
-		FROM account
-		WHERE user_index = ?`
-	if err := s.db.SelectRecord(qry, &user, userIndex); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	// find user account in persistence
+	user, err := s.db.FindUserAccount(userIndex)
+	if err != nil {
+		if err == sql.ErrNoRows {
 			return fmt.Errorf("user %s not found", username)
 		} else {
 			return fmt.Errorf("failed to query user account for user %s: %v", username, err)

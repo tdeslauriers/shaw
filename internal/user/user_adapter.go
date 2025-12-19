@@ -101,8 +101,8 @@ func (r *userRepository) UpdateUser(user *api.Profile, index string) error {
 
 	// only the following fields are allowed to be updated
 	qry := `
-			UPDATE account
-			SET firstname = ?,
+			UPDATE account SET 
+				firstname = ?,
 				lastname = ?,
 				birth_date = ?,
 				enabled = ?,

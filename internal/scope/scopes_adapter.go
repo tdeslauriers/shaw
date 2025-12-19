@@ -10,7 +10,7 @@ import (
 type ScopesRepository interface {
 
 	// FindAccountScopeXrefs retrieves account scope xrefs from the database
-	FindAccountScopeXrefs(userIndex string) ([]AccountScope, error)
+	FindAccountScopeXrefs(userIndex string) ([]AccountScopeXref, error)
 }
 
 // NewScopesRepository creates a new ScopesAdaptor interface by returning
@@ -29,7 +29,7 @@ type scopesRepository struct {
 }
 
 // FindAccountScopeXrefs is a concrete implementation which retrieves account scope xrefs from the database
-func (r *scopesRepository) FindAccountScopeXrefs(userIndex string) ([]AccountScope, error) {
+func (r *scopesRepository) FindAccountScopeXrefs(userIndex string) ([]AccountScopeXref, error) {
 
 	qry := `
 		SELECT
@@ -40,7 +40,7 @@ func (r *scopesRepository) FindAccountScopeXrefs(userIndex string) ([]AccountSco
 		FROM account_scope asp
 			LEFT OUTER JOIN account a ON asp.account_uuid = a.uuid
 		WHERE a.user_index = ?`
-	xrefs, err := data.SelectRecords[AccountScope](r.db, qry, userIndex)
+	xrefs, err := data.SelectRecords[AccountScopeXref](r.db, qry, userIndex)
 	if err != nil {
 		return nil, err
 	}

@@ -14,9 +14,9 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
+	"github.com/tdeslauriers/shaw/internal/authentication"
 	"github.com/tdeslauriers/shaw/internal/util"
 	"github.com/tdeslauriers/shaw/pkg/api/oauth"
-	"github.com/tdeslauriers/shaw/pkg/authentication"
 )
 
 const (
@@ -39,7 +39,7 @@ type Handler interface {
 
 // NewHandler creates a new Handler and returns and underlying pointer to a
 // concrete implementation of the Handler interface
-func NewHandler(s OauthService, u authentication.Service, v jwt.Verifier) Handler {
+func NewHandler(s Service, u authentication.Service, v jwt.Verifier) Handler {
 
 	return &handler{
 		oauth:       s,
@@ -58,7 +58,7 @@ var _ Handler = (*handler)(nil)
 // handles the callback request from the client after the user has authenticated, exchanging
 // the auth code for the access token and id token, and returning them to the client
 type handler struct {
-	oauth       OauthService
+	oauth       Service
 	auth        authentication.Service
 	s2sVerifier jwt.Verifier
 

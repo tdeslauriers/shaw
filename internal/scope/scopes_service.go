@@ -101,7 +101,7 @@ func (s *scopesService) GetUserScopes(ctx context.Context, username, service str
 		wg sync.WaitGroup
 
 		allCh  = make(chan []ran.Scope, 1)
-		userCh = make(chan []AccountScope, 1)
+		userCh = make(chan []AccountScopeXref, 1)
 		errCh  = make(chan error, 2)
 	)
 
@@ -124,7 +124,7 @@ func (s *scopesService) GetUserScopes(ctx context.Context, username, service str
 	}
 
 	// collect user scopes to slices from channels
-	var userScopes []AccountScope
+	var userScopes []AccountScopeXref
 	for us := range userCh {
 		userScopes = append(userScopes, us...)
 	}
@@ -163,7 +163,7 @@ func (s *scopesService) GetUserScopes(ctx context.Context, username, service str
 func (s *scopesService) lookupUserScopes(
 	ctx context.Context,
 	username string,
-	asCh chan []AccountScope,
+	asCh chan []AccountScopeXref,
 	errCh chan error,
 	wg *sync.WaitGroup,
 ) {

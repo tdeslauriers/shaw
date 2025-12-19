@@ -5,22 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	ran "github.com/tdeslauriers/ran/pkg/api/scopes"
 	"github.com/tdeslauriers/shaw/internal/util"
 	"github.com/tdeslauriers/shaw/pkg/api/oauth"
 )
 
-func NewOauthService(db *sql.DB, i data.Indexer, c data.Cryptor) OauthService {
-	return &oauthService{
+func NewService(db *sql.DB, i data.Indexer, c data.Cryptor) Service {
+	return &service{
 		db:      NewOAuthRepository(db),
 		indexer: i,
 		cryptor: c,
@@ -31,8 +29,8 @@ func NewOauthService(db *sql.DB, i data.Indexer, c data.Cryptor) OauthService {
 	}
 }
 
-// OauthService is the interface for the oauth service functionality like validating clients and redirect urls, generating auth codes, and retrieving user data associated with an auth code.
-type OauthService interface {
+// Service is the interface for the oauth service functionality like validating clients and redirect urls, generating auth codes, and retrieving user data associated with an auth code.
+type Service interface {
 	// IsVaildRedirect validates the client and redirect url exist, are linked, and are enabled/not expired/not locked
 	IsValidRedirect(clientid, url string) (bool, error)
 
@@ -48,16 +46,10 @@ type OauthService interface {
 	RetrieveUserData(cmd oauth.AccessTokenCmd) (*OauthUserData, error)
 }
 
-// OauthErrService is an interface for handling errors returned by the service methods and sending the appropriate http response
-type OauthErrService interface {
-	// HandleServiceErr handles errors returned by the service methods and sends the appropriate http response
-	HandleServiceErr(err error, w http.ResponseWriter)
-}
+var _ Service = (*service)(nil)
 
-var _ OauthService = (*oauthService)(nil)
-
-// oauthService is the concrete implementation of the OauthService interface
-type oauthService struct {
+// service is the concrete implementation of the OauthService interface
+type service struct {
 	db      OAuthRepository
 	indexer data.Indexer
 	cryptor data.Cryptor
@@ -66,7 +58,7 @@ type oauthService struct {
 }
 
 // IsValidRedirect implements the OauthFlowService interface
-func (s *oauthService) IsValidRedirect(clientId, redirect string) (bool, error) {
+func (s *service) IsValidRedirect(clientId, redirect string) (bool, error) {
 
 	// remove any query params from redirect url
 	parsed, err := url.Parse(redirect)
@@ -111,7 +103,7 @@ func (s *oauthService) IsValidRedirect(clientId, redirect string) (bool, error) 
 }
 
 // IsValidClient implements the OauthFlowService interface
-func (s *oauthService) IsValidClient(clientId, username string) (bool, error) {
+func (s *service) IsValidClient(clientId, username string) (bool, error) {
 
 	// re-generate user index
 	index, err := s.indexer.ObtainBlindIndex(username)
@@ -160,7 +152,7 @@ func (s *oauthService) IsValidClient(clientId, username string) (bool, error) {
 }
 
 // GenerateAuthCode implements the OauthFlowService interface
-func (s *oauthService) GenerateAuthCode(username, nonce, clientId, redirect string, scopes []ran.Scope) (string, error) {
+func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, scopes []ran.Scope) (string, error) {
 
 	// check for empty fields: redundant check, but good practice
 	if username == "" || nonce == "" || clientId == "" || redirect == "" || len(scopes) == 0 {
@@ -444,7 +436,7 @@ func (s *oauthService) GenerateAuthCode(username, nonce, clientId, redirect stri
 	return authCode.String(), nil
 }
 
-func (s *oauthService) RetrieveUserData(cmd oauth.AccessTokenCmd) (*OauthUserData, error) {
+func (s *service) RetrieveUserData(cmd oauth.AccessTokenCmd) (*OauthUserData, error) {
 
 	// check for empty fields: redundant check, but good practice
 	if err := cmd.ValidateCmd(); err != nil {
@@ -664,7 +656,7 @@ func (s *oauthService) RetrieveUserData(cmd oauth.AccessTokenCmd) (*OauthUserDat
 }
 
 // decrypt is a helper function to absract the decryption process for the user data fields
-func (s *oauthService) decrypt(encrypted, errMsg string, clear *[]byte, ch chan error, wg *sync.WaitGroup) {
+func (s *service) decrypt(encrypted, errMsg string, clear *[]byte, ch chan error, wg *sync.WaitGroup) {
 
 	defer wg.Done()
 
@@ -675,103 +667,4 @@ func (s *oauthService) decrypt(encrypted, errMsg string, clear *[]byte, ch chan 
 	}
 
 	*clear = decrypted
-}
-
-func (s *oauthService) HandleServiceErr(err error, w http.ResponseWriter) {
-	switch {
-	// 400
-	case strings.Contains(err.Error(), ErrValidateAuthCode):
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusBadRequest,
-			Message:    ErrValidateAuthCode,
-		}
-		e.SendJsonErr(w)
-		return
-	case strings.Contains(err.Error(), ErrInvalidGrantType):
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusUnauthorized,
-			Message:    ErrInvalidGrantType,
-		}
-		e.SendJsonErr(w)
-		return
-	case strings.Contains(err.Error(), ErrIndexNotFound):
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusUnauthorized,
-			Message:    ErrIndexNotFound,
-		}
-		e.SendJsonErr(w)
-		return
-	case strings.Contains(err.Error(), ErrAuthcodeRevoked):
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusUnauthorized,
-			Message:    ErrAuthcodeRevoked,
-		}
-		e.SendJsonErr(w)
-		return
-	case strings.Contains(err.Error(), ErrAuthcodeClaimed):
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusUnauthorized,
-			Message:    ErrAuthcodeClaimed,
-		}
-		e.SendJsonErr(w)
-		return
-	case strings.Contains(err.Error(), ErrAuthcodeExpired):
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusUnauthorized,
-			Message:    ErrAuthcodeExpired,
-		}
-		e.SendJsonErr(w)
-		return
-	case strings.Contains(err.Error(), ErrUserDisabled):
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusUnauthorized,
-			Message:    ErrUserDisabled,
-		}
-		e.SendJsonErr(w)
-		return
-	case strings.Contains(err.Error(), ErrUserAccountLocked):
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusUnauthorized,
-			Message:    ErrUserAccountLocked,
-		}
-		e.SendJsonErr(w)
-		return
-	case strings.Contains(err.Error(), ErrUserAccountExpired):
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusUnauthorized,
-			Message:    ErrUserAccountExpired,
-		}
-		e.SendJsonErr(w)
-		return
-	case strings.Contains(err.Error(), ErrMismatchAuthcode):
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusUnauthorized,
-			Message:    ErrMismatchAuthcode,
-		}
-		e.SendJsonErr(w)
-		return
-	case strings.Contains(err.Error(), ErrMismatchClientid):
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusUnauthorized,
-			Message:    ErrMismatchClientid,
-		}
-		e.SendJsonErr(w)
-		return
-	case strings.Contains(err.Error(), ErrMismatchRedirect):
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusUnauthorized,
-			Message:    ErrMismatchRedirect,
-		}
-		e.SendJsonErr(w)
-		return
-
-		// 500
-	default:
-		e := connect.ErrorHttp{
-			StatusCode: http.StatusInternalServerError,
-			Message:    "internal server error",
-		}
-		e.SendJsonErr(w)
-		return
-	}
 }

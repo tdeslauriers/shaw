@@ -13,9 +13,9 @@ import (
 )
 
 // NewRefreshService creates a new refresh service concrete implmentation for user refresh token functionality.
-func NewRefreshService(db data.SqlRepository, i data.Indexer, c data.Cryptor) types.RefreshService[types.UserRefresh] {
+func NewRefreshService(db *sql.DB, i data.Indexer, c data.Cryptor) types.RefreshService[types.UserRefresh] {
 	return &refresh{
-		db:      db,
+		db:      NewRefreshRepository(db),
 		indexer: i,
 		cryptor: c,
 	}
@@ -24,7 +24,7 @@ func NewRefreshService(db data.SqlRepository, i data.Indexer, c data.Cryptor) ty
 var _ types.RefreshService[types.UserRefresh] = (*refresh)(nil)
 
 type refresh struct {
-	db      data.SqlRepository
+	db      RefreshRepository
 	indexer data.Indexer
 	cryptor data.Cryptor
 }
@@ -43,21 +43,9 @@ func (r *refresh) GetRefreshToken(ctx context.Context, refreshToken string) (*ty
 		return nil, fmt.Errorf("%s for refresh token xxxxxx-%s: %v", ErrGenerateIndex, refreshToken[len(refreshToken)-6:], err)
 	}
 
-	// retrieve record
-	qry := `SELECT 
-				uuid, 
-				refresh_index,
-				client_id, 
-				refresh_token, 
-				username,
-				username_index,
-				scopes,
-				created_at,
-				revoked
-			FROM refresh 
-			WHERE refresh_index = ?`
-	var refresh types.UserRefresh
-	if err := r.db.SelectRecord(qry, &refresh, index); err != nil {
+	// retrieve refresh token record from persistence
+	refresh, err := r.db.FindUserRefresh(index)
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("%s - xxxxxx-%s", ErrRefreshNotFound, refreshToken[len(refreshToken)-6:])
 		}
@@ -236,9 +224,8 @@ func (r *refresh) PersistRefresh(ur types.UserRefresh) error {
 	ur.UsernameIndex = usernameIndex
 	ur.Scopes = encryptedScopes
 
-	// insert record
-	qry := `INSERT INTO refresh (uuid, refresh_index, client_id, refresh_token, username, username_index, scopes, created_at, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	if err := r.db.InsertRecord(qry, ur); err != nil {
+	// insert record in to persistence
+	if err := r.db.InsertUserRefresh(ur); err != nil {
 		return fmt.Errorf("failed to insert refresh token record: %v", err)
 	}
 
@@ -282,22 +269,24 @@ func (r *refresh) DestroyRefresh(refreshToken string) error {
 	// create blind index
 	index, err := r.indexer.ObtainBlindIndex(refreshToken)
 	if err != nil {
-		return fmt.Errorf("%s for refresh token xxxxxx-%s: %v", ErrGenerateIndex, refreshToken[len(refreshToken)-6:], err)
+		return fmt.Errorf("%s for refresh token xxxxxx-%s: %v",
+			ErrGenerateIndex, refreshToken[len(refreshToken)-6:], err)
 	}
 
 	// calling record to validate it exists
 	// TODO: update crud functions in carapace to return rows affected so calls can be consolidated.
-	qry := `SELECT EXISTS (SELECT 1 FROM refresh WHERE refresh_index = ?)`
-	if exists, err := r.db.SelectExists(qry, index); err != nil {
-		return fmt.Errorf("failed to lookup refresh token xxxxxx-%s record: %v", refreshToken[len(refreshToken)-6:], err)
+	if exists, err := r.db.RefreshExists(index); err != nil {
+		return fmt.Errorf("failed to lookup refresh token xxxxxx-%s record: %v",
+			refreshToken[len(refreshToken)-6:], err)
 	} else if !exists {
-		return fmt.Errorf("refresh token xxxxxx-%s record does not exist", refreshToken[len(refreshToken)-6:])
+		return fmt.Errorf("refresh token xxxxxx-%s record does not exist",
+			refreshToken[len(refreshToken)-6:])
 	}
 
 	// delete record
-	qry = `DELETE FROM refresh WHERE refresh_index = ?`
-	if err := r.db.DeleteRecord(qry, index); err != nil {
-		return fmt.Errorf("failed to delete refresh token xxxxxx-%s record: %v", refreshToken[len(refreshToken)-6:], err)
+	if err := r.db.DeleteUserRefresh(index); err != nil {
+		return fmt.Errorf("failed to delete refresh token xxxxxx-%s record: %v",
+			refreshToken[len(refreshToken)-6:], err)
 	}
 
 	return nil
@@ -317,18 +306,27 @@ func (r *refresh) RevokeRefresh(refreshToken string) error {
 		return fmt.Errorf("%s for refresh token xxxxxx-%s: %v", ErrGenerateIndex, refreshToken[len(refreshToken)-6:], err)
 	}
 
-	// calling record to validate it exists
-	// TODO: update crud functions in carapace to return rows affected so calls can be consolidated.
-	qry := `SELECT EXISTS (SELECT 1 FROM refresh WHERE refresh_index = ?)`
-	if exists, err := r.db.SelectExists(qry, index); err != nil {
-		return fmt.Errorf("failed to lookup refresh token xxxxxx-%s record: %v", refreshToken[len(refreshToken)-6:], err)
-	} else if !exists {
-		return fmt.Errorf("refresh token xxxxxx-%s record does not exist", refreshToken[len(refreshToken)-6:])
+	// get refresh token record from persistence
+	token, err := r.db.FindUserRefresh(index)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("%s - xxxxxx-%s", ErrRefreshNotFound, refreshToken[len(refreshToken)-6:])
+		}
+		return fmt.Errorf("failed to retrieve refresh token xxxxxx-%s record: %v", refreshToken[len(refreshToken)-6:], err)
 	}
 
+	// check if already revoked
+	if token.Revoked {
+		// already revoked
+		return nil
+	}
+
+	// set revoked to true
+	token.Revoked = true
+
 	// update record to revoked
-	qry = `UPDATE refresh SET revoked = ? WHERE refresh_index = ?`
-	if err := r.db.UpdateRecord(qry, true, index); err != nil {
+	// NOTE: at this time, only the revoked field may be updated
+	if err := r.db.UpdateUserRefresh(*token); err != nil {
 		return fmt.Errorf("failed to revoke refresh token xxxxxx-%s record: %v", refreshToken[len(refreshToken)-6:], err)
 	}
 

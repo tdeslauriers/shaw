@@ -7,8 +7,8 @@ const (
 	ErrGenerateIndex = "failed to generate blind index"
 )
 
-// AccountScope is a model for account_scope xref table
-type AccountScope struct {
+// AccountScopeXref is a model for account_scope xref table
+type AccountScopeXref struct {
 	Id          int             `json:"id" db:"id"`
 	AccountUuid string          `json:"account_uuid" db:"account_uuid"`
 	ScopeUuid   string          `json:"scope_uuid" db:"scope_uuid"`

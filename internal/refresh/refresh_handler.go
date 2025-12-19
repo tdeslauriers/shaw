@@ -15,9 +15,9 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
+	"github.com/tdeslauriers/shaw/internal/authentication"
 	"github.com/tdeslauriers/shaw/internal/user"
 	"github.com/tdeslauriers/shaw/internal/util"
-	"github.com/tdeslauriers/shaw/pkg/authentication"
 )
 
 // service scopes required

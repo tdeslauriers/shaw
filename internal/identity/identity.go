@@ -17,13 +17,13 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/schedule"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/sign"
+	"github.com/tdeslauriers/shaw/internal/authentication"
+	"github.com/tdeslauriers/shaw/internal/login"
+	"github.com/tdeslauriers/shaw/internal/oauth"
+	"github.com/tdeslauriers/shaw/internal/refresh"
+	"github.com/tdeslauriers/shaw/internal/register"
+	"github.com/tdeslauriers/shaw/internal/user"
 	"github.com/tdeslauriers/shaw/internal/util"
-	"github.com/tdeslauriers/shaw/pkg/authentication"
-	"github.com/tdeslauriers/shaw/pkg/login"
-	"github.com/tdeslauriers/shaw/pkg/oauth"
-	"github.com/tdeslauriers/shaw/pkg/refresh"
-	"github.com/tdeslauriers/shaw/pkg/register"
-	"github.com/tdeslauriers/shaw/pkg/user"
 )
 
 type Identity interface {
@@ -140,10 +140,10 @@ func New(config config.Config) (Identity, error) {
 		repository:      repository,
 		s2sVerifier:     jwt.NewVerifier(config.ServiceName, s2sPublicKey),
 		iamVerifier:     jwt.NewVerifier(config.ServiceName, &iamPrivateKey.PublicKey),
-		authService:     authentication.NewService(repository, iamSigner, indexer, cryptor, s2sProvider, s2sCaller),
-		oathService:     oauth.NewService(repository, indexer, cryptor),
-		registerService: register.NewService(repository, cryptor, indexer, s2sProvider, s2sCaller),
-		userService:     user.NewService(repository, indexer, cryptor, s2sProvider, s2sCaller),
+		authService:     authentication.NewService(db, iamSigner, indexer, cryptor, s2sProvider, s2sCaller),
+		oathService:     oauth.NewService(db, indexer, cryptor),
+		registerService: register.NewService(db, cryptor, indexer, s2sProvider, s2sCaller),
+		userService:     user.NewService(db, indexer, cryptor, s2sProvider, s2sCaller),
 		cleanup:         schedule.NewCleanup(db),
 
 		logger: slog.Default().
