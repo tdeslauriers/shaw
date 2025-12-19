@@ -29,13 +29,13 @@ type UserService interface {
 	GetUsers() ([]api.Profile, error)
 
 	// GetUser retrieves user data (including user's scopes) by slug from persistence.
-	GetUser(ctx context.Context, slug string) (*User, error)
+	GetUser(ctx context.Context, slug string) (*api.User, error)
 
 	// Update updates the user data in in persistence.
 	Update(user *api.Profile) error
 
 	// UpdateScopes updates the user's scopes assigned scopes given a command of scope slugs.
-	UpdateScopes(ctx context.Context, user *User, cmd []string) error
+	UpdateScopes(ctx context.Context, user *api.User, cmd []string) error
 
 	// IsActive checks if the user is active.
 	IsActive(u *api.Profile) (bool, error)
@@ -119,7 +119,7 @@ func (s *userService) GetUsers() ([]api.Profile, error) {
 }
 
 // GetUser retrieves user data (including user's scopes) by slug from the database.
-func (s *userService) GetUser(ctx context.Context, slug string) (*User, error) {
+func (s *userService) GetUser(ctx context.Context, slug string) (*api.User, error) {
 
 	// get profile data
 	u, err := s.getBySlug(slug)
@@ -134,7 +134,7 @@ func (s *userService) GetUser(ctx context.Context, slug string) (*User, error) {
 		return nil, err
 	}
 
-	return &User{
+	return &api.User{
 		Id:             u.Id,
 		Username:       u.Username,
 		Firstname:      u.Firstname,
@@ -297,7 +297,7 @@ func (s *userService) Update(user *api.Profile) error {
 
 // UpdateScopes is a concrete implementation of the interface method which updates the
 // user's assigned scopes given a command of scope slugs.
-func (s *userService) UpdateScopes(ctx context.Context, user *User, cmd []string) error {
+func (s *userService) UpdateScopes(ctx context.Context, user *api.User, cmd []string) error {
 
 	// validate the cmd scopes
 	for _, slug := range cmd {

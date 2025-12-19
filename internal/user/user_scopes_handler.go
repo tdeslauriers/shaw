@@ -11,6 +11,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	util "github.com/tdeslauriers/shaw/internal/definition"
+	"github.com/tdeslauriers/shaw/pkg/api/user"
 )
 
 // ScopesHandler is an interface for handling requests to update the user's assigned scopes
@@ -84,7 +85,7 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 	log = log.With("actor", authorized.Claims.Subject)
 
 	// decode request body
-	var cmd UserScopesCmd
+	var cmd user.UserScopesCmd
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		log.Error("failed to decode user scopes cmd", "err", err.Error())
 		e := connect.ErrorHttp{
