@@ -12,7 +12,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	ran "github.com/tdeslauriers/ran/pkg/api/scopes"
-	"github.com/tdeslauriers/shaw/internal/util"
+	util "github.com/tdeslauriers/shaw/internal/definition"
 )
 
 // ScopesService is the interface for the scopes service functionality like retrieving user scopes by username from the db.

@@ -13,8 +13,8 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/ran/pkg/api/scopes"
+	util "github.com/tdeslauriers/shaw/internal/definition"
 	"github.com/tdeslauriers/shaw/internal/scope"
-	"github.com/tdeslauriers/shaw/internal/util"
 
 	"golang.org/x/crypto/bcrypt"
 )

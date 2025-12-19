@@ -11,7 +11,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/profile"
-	"github.com/tdeslauriers/shaw/internal/util"
+	util "github.com/tdeslauriers/shaw/internal/definition"
 )
 
 // ResetHandler is the interface for handling the reset request from users where the user knows their current password

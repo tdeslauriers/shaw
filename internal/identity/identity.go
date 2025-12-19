@@ -18,12 +18,12 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/sign"
 	"github.com/tdeslauriers/shaw/internal/authentication"
+	util "github.com/tdeslauriers/shaw/internal/definition"
 	"github.com/tdeslauriers/shaw/internal/login"
 	"github.com/tdeslauriers/shaw/internal/oauth"
 	"github.com/tdeslauriers/shaw/internal/refresh"
 	"github.com/tdeslauriers/shaw/internal/register"
 	"github.com/tdeslauriers/shaw/internal/user"
-	"github.com/tdeslauriers/shaw/internal/util"
 )
 
 type Identity interface {

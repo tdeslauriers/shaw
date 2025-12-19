@@ -15,8 +15,8 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	ran "github.com/tdeslauriers/ran/pkg/api/scopes"
+	util "github.com/tdeslauriers/shaw/internal/definition"
 	"github.com/tdeslauriers/shaw/internal/user"
-	"github.com/tdeslauriers/shaw/internal/util"
 	api "github.com/tdeslauriers/shaw/pkg/api/register"
 
 	"golang.org/x/crypto/bcrypt"

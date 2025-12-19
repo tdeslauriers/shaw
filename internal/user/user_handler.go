@@ -10,7 +10,7 @@ import (
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
-	"github.com/tdeslauriers/shaw/internal/util"
+	util "github.com/tdeslauriers/shaw/internal/definition"
 	api "github.com/tdeslauriers/shaw/pkg/api/user"
 )
 

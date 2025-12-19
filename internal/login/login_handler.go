@@ -13,8 +13,8 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
 	"github.com/tdeslauriers/shaw/internal/authentication"
+	util "github.com/tdeslauriers/shaw/internal/definition"
 	"github.com/tdeslauriers/shaw/internal/oauth"
-	"github.com/tdeslauriers/shaw/internal/util"
 	api "github.com/tdeslauriers/shaw/pkg/api/login"
 )
 

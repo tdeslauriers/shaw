@@ -1,4 +1,4 @@
-package util
+package definition
 
 const (
 	ServiceName string = "shaw"

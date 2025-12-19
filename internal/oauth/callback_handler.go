@@ -15,7 +15,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/carapace/pkg/session/types"
 	"github.com/tdeslauriers/shaw/internal/authentication"
-	"github.com/tdeslauriers/shaw/internal/util"
+	util "github.com/tdeslauriers/shaw/internal/definition"
 	"github.com/tdeslauriers/shaw/pkg/api/oauth"
 )
 

@@ -13,8 +13,8 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/validate"
 	"github.com/tdeslauriers/ran/pkg/api/scopes"
+	util "github.com/tdeslauriers/shaw/internal/definition"
 	"github.com/tdeslauriers/shaw/internal/scope"
-	"github.com/tdeslauriers/shaw/internal/util"
 	api "github.com/tdeslauriers/shaw/pkg/api/user"
 )
 

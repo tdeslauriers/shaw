@@ -12,7 +12,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/profile"
 	"github.com/tdeslauriers/carapace/pkg/validate"
-	"github.com/tdeslauriers/shaw/internal/util"
+	util "github.com/tdeslauriers/shaw/internal/definition"
 	"golang.org/x/crypto/bcrypt"
 )
 

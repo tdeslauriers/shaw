@@ -9,8 +9,8 @@ import (
 	"sync"
 
 	"github.com/tdeslauriers/carapace/pkg/data"
+	util "github.com/tdeslauriers/shaw/internal/definition"
 	"github.com/tdeslauriers/shaw/internal/scope"
-	"github.com/tdeslauriers/shaw/internal/util"
 	api "github.com/tdeslauriers/shaw/pkg/api/user"
 )
 

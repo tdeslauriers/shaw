@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	ran "github.com/tdeslauriers/ran/pkg/api/scopes"
-	"github.com/tdeslauriers/shaw/internal/util"
+	util "github.com/tdeslauriers/shaw/internal/definition"
 	"github.com/tdeslauriers/shaw/pkg/api/oauth"
 )
 

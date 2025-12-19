@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
-	"github.com/tdeslauriers/shaw/internal/util"
+	util "github.com/tdeslauriers/shaw/internal/definition"
 )
 
 // AuthErrService is an interface for handling errors returned by the service methods and sending the appropriate error response to the client.
