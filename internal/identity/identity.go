@@ -2,6 +2,7 @@ package identity
 
 import (
 	"crypto/tls"
+	"database/sql"
 	"encoding/base64"
 	"fmt"
 	"log/slog"
@@ -83,8 +84,6 @@ func New(config config.Config) (Identity, error) {
 		return nil, fmt.Errorf("failed to connect to database: %v", err)
 	}
 
-	repository := data.NewSqlRepository(db)
-
 	// indexer
 	hmacSecret, err := base64.StdEncoding.DecodeString(config.Database.IndexSecret)
 	if err != nil {
@@ -117,7 +116,7 @@ func New(config config.Config) (Identity, error) {
 		ClientSecret: config.ServiceAuth.ClientSecret,
 	}
 
-	s2sProvider := provider.NewS2sTokenProvider(s2sCaller, s2sCreds, repository, cryptor)
+	s2sProvider := provider.NewS2sTokenProvider(s2sCaller, s2sCreds, db, cryptor)
 
 	// s2s jwt verifing key
 	s2sPublicKey, err := sign.ParsePublicEcdsaCert(config.Jwt.S2sVerifyingKey)
@@ -137,7 +136,7 @@ func New(config config.Config) (Identity, error) {
 	return &identity{
 		config:          config,
 		serverTls:       serverTlsConfig,
-		repository:      repository,
+		repository:      db,
 		s2sVerifier:     jwt.NewVerifier(config.ServiceName, s2sPublicKey),
 		iamVerifier:     jwt.NewVerifier(config.ServiceName, &iamPrivateKey.PublicKey),
 		authService:     authentication.NewService(db, iamSigner, indexer, cryptor, s2sProvider, s2sCaller),
@@ -157,7 +156,7 @@ var _ Identity = (*identity)(nil)
 type identity struct {
 	config          config.Config
 	serverTls       *tls.Config
-	repository      data.SqlRepository
+	repository      *sql.DB
 	s2sVerifier     jwt.Verifier
 	iamVerifier     jwt.Verifier
 	authService     authentication.Service
