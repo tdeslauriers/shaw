@@ -6,7 +6,7 @@ toolchain go1.24.4
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/tdeslauriers/carapace v0.3.0
+	github.com/tdeslauriers/carapace v0.3.1
 	github.com/tdeslauriers/ran v0.1.3
 	golang.org/x/crypto v0.46.0
 )
