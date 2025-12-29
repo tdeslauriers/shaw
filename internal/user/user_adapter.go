@@ -12,8 +12,8 @@ import (
 // UserRepository defines the user repository interface for user data operations.
 type UserRepository interface {
 
-	// FindUserByIndex retrieves a user profile by their index.
-	FindUserByIndex(index string) (*api.Profile, error)
+	// FindUserBySlug retrieves a user profile by their slug index.
+	FindUserBySlug(index string) (*api.Profile, error)
 
 	// FindAllUsers retrieves all user profiles.
 	FindAllUsers() ([]api.Profile, error)
@@ -44,8 +44,8 @@ type userRepository struct {
 	sql *sql.DB
 }
 
-// GetUserByIndex retrieves a user by their index from the database.
-func (r *userRepository) FindUserByIndex(index string) (*api.Profile, error) {
+// GetUserByIndex retrieves a user by their slug index from the database.
+func (r *userRepository) FindUserBySlug(index string) (*api.Profile, error) {
 
 	qry := `
 		SELECT 
@@ -60,13 +60,13 @@ func (r *userRepository) FindUserByIndex(index string) (*api.Profile, error) {
 			account_expired,
 			account_locked 
 		FROM account 
-		WHERE user_index = ?`
+		WHERE slug_index = ?`
 	profile, err := data.SelectOneRecord[api.Profile](r.sql, qry, index)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, errors.New("user with provided index not found")
 		}
-		return nil, fmt.Errorf("failed to retrieve user by index from database: %v", err)
+		return nil, fmt.Errorf("failed to retrieve user by index %s from database: %v", index, err)
 	}
 
 	return &profile, nil

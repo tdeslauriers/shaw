@@ -163,7 +163,7 @@ func (s *userService) getByUsername(username string) (*api.Profile, error) {
 	}
 
 	// retrieve user record from persistence
-	user, err := s.db.FindUserByIndex(index)
+	user, err := s.db.FindUserBySlug(index)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +190,7 @@ func (s *userService) getBySlug(slug string) (*api.Profile, error) {
 	}
 
 	// retrieve user account record from persistence
-	user, err := s.db.FindUserByIndex(slugIndex)
+	user, err := s.db.FindUserBySlug(slugIndex)
 	if err != nil {
 		return nil, err
 	}
