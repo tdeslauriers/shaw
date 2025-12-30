@@ -87,7 +87,7 @@ func (r *userRepository) FindUserByUsername(index string) (*api.Profile, error) 
 			account_expired,
 			account_locked 
 		FROM account 
-		WHERE username_index = ?`
+		WHERE user_index = ?`
 	profile, err := data.SelectOneRecord[api.Profile](r.sql, qry, index)
 	if err != nil {
 		if err == sql.ErrNoRows {
