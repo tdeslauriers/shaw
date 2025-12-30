@@ -12,11 +12,14 @@ import (
 // UserRepository defines the user repository interface for user data operations.
 type UserRepository interface {
 
-	// FindUserBySlug retrieves a user profile by their slug index.
-	FindUserBySlug(index string) (*api.Profile, error)
-
 	// FindAllUsers retrieves all user profiles.
 	FindAllUsers() ([]api.Profile, error)
+
+	// FindUserByUsername retrieves a user profile by their username index.
+	FindUserByUsername(index string) (*api.Profile, error)
+
+	// FindUserBySlug retrieves a user profile by their slug index.
+	FindUserBySlug(index string) (*api.Profile, error)
 
 	// UpdateUser updates a user profile in the database identified by their index.
 	UpdateUser(user *api.Profile, index string) error
@@ -44,34 +47,6 @@ type userRepository struct {
 	sql *sql.DB
 }
 
-// GetUserByIndex retrieves a user by their slug index from the database.
-func (r *userRepository) FindUserBySlug(index string) (*api.Profile, error) {
-
-	qry := `
-		SELECT 
-			uuid, 
-			username, 
-			firstname, 
-			lastname,
-			birth_date,
-			slug,
-			created_at, 
-			enabled,
-			account_expired,
-			account_locked 
-		FROM account 
-		WHERE slug_index = ?`
-	profile, err := data.SelectOneRecord[api.Profile](r.sql, qry, index)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, errors.New("user with provided index not found")
-		}
-		return nil, fmt.Errorf("failed to retrieve user by index %s from database: %v", index, err)
-	}
-
-	return &profile, nil
-}
-
 // FindAllUsers retrieves all user profiles from the database.
 func (r *userRepository) FindAllUsers() ([]api.Profile, error) {
 
@@ -94,6 +69,62 @@ func (r *userRepository) FindAllUsers() ([]api.Profile, error) {
 	}
 
 	return profiles, nil
+}
+
+// FindUserByUsername retrieves a user by their username index from the database.
+func (r *userRepository) FindUserByUsername(index string) (*api.Profile, error) {
+
+	qry := `
+		SELECT 
+			uuid, 
+			username, 
+			firstname, 
+			lastname,
+			birth_date,
+			slug,
+			created_at, 
+			enabled,
+			account_expired,
+			account_locked 
+		FROM account 
+		WHERE username_index = ?`
+	profile, err := data.SelectOneRecord[api.Profile](r.sql, qry, index)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, errors.New("user with provided index not found")
+		}
+		return nil, fmt.Errorf("failed to retrieve user by index %s from database: %v", index, err)
+	}
+
+	return &profile, nil
+}
+
+// GetUserByIndex retrieves a user by their slug index from the database.
+func (r *userRepository) FindUserBySlug(index string) (*api.Profile, error) {
+
+	qry := `
+		SELECT 
+			uuid, 
+			username, 
+			firstname, 
+			lastname,
+			birth_date,
+			slug,
+			created_at, 
+			enabled,
+			account_expired,
+			account_locked 
+		FROM account 
+		WHERE slug_index = ?`
+	profile, err := data.SelectOneRecord[api.Profile](r.sql, qry, index)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, errors.New("user with provided slug index not found")
+		}
+		return nil, fmt.Errorf("failed to retrieve user by index %s from database: %v", index, err)
+	}
+
+	return &profile, nil
 }
 
 // UpdateUser updates a user profile in the database.
