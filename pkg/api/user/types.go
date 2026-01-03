@@ -181,6 +181,7 @@ type UserAccount struct {
 	Username       string `db:"username" json:"username"`
 	UserIndex      string `db:"user_index" json:"user_index,omitempty"`
 	Password       string `db:"password" json:"password,omitempty"`
+	Legacy         bool   `db:"legacy" json:"legacy,omitempty"` // indicates if account is using legacy bcrypt password vs argon2id
 	Firstname      string `db:"firstname" json:"firstname"`
 	Lastname       string `db:"lastname" json:"lastname"`
 	Birthdate      string `db:"birth_date" json:"birth_date,omitempty"` // string because field encrypted in db
