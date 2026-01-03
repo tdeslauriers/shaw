@@ -346,6 +346,7 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 		Username:       username, // encrypted username
 		UserIndex:      userIndex,
 		Password:       password,  // encrypted password
+		Legacy:         false,     // all new registrations use argon2id
 		Firstname:      firstname, // encrypted firstname
 		Lastname:       lastname,  // encrypted lastname
 		Birthdate:      dob,       // encrypted dob

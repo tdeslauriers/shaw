@@ -12,6 +12,9 @@ type AuthRepository interface {
 
 	// FindUserAccount finds a user account by username blind index
 	FindUserAccount(userIndex string) (*apiUser.UserAccount, error)
+
+	// UpdateLegacyPassword updates the legacy password field for a user account
+	UpdateLegacyPassword(legacy bool, password, userIndex string) error
 }
 
 // NewAuthRepository creates a new implementation of the AuthRepository interface
@@ -39,6 +42,7 @@ func (r *authRepository) FindUserAccount(userIndex string) (*apiUser.UserAccount
 			username,
 			user_index,
 			password,
+			legacy,
 			firstname,
 			lastname,
 			birth_date,
@@ -57,4 +61,28 @@ func (r *authRepository) FindUserAccount(userIndex string) (*apiUser.UserAccount
 	}
 
 	return &u, nil
+}
+
+// UpdateLegacyPassword updates the legacy and password fields for a user account.
+// Intent: save over the old bcrypt hash with new argon2id hash and set legacy to false
+func (r *authRepository) UpdateLegacyPassword(legacy bool, password, userIndex string) error {
+
+	qry := `
+		UPDATE account
+		SET 
+			legacy = ?,
+			password = ?
+		WHERE user_index = ?`
+
+	if err := data.UpdateRecord(
+		r.db,
+		qry,
+		legacy,    // to update
+		password,  // to update
+		userIndex, // where clause
+	); err != nil {
+		return err
+	}
+
+	return nil
 }

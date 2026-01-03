@@ -4,6 +4,7 @@ CREATE TABLE account (
     username VARCHAR(128) NOT NULL,
     user_index VARCHAR(128) NOT NULL,
     password VARCHAR(255) NOT NULL,
+    legacy BOOLEAN NOT NULL DEFAULT TRUE,
     firstname VARCHAR(128) NOT NULL,
     lastname VARCHAR(128) NOT NULL,
     birth_date VARCHAR(128),

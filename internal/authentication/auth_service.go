@@ -13,6 +13,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	"github.com/tdeslauriers/ran/pkg/api/scopes"
+	"github.com/tdeslauriers/shaw/internal/creds"
 	util "github.com/tdeslauriers/shaw/internal/definition"
 	"github.com/tdeslauriers/shaw/internal/scope"
 
@@ -53,6 +54,7 @@ func NewAuthService(
 		db:      NewAuthRepository(db),
 		mint:    s,
 		indexer: i,
+		creds:   creds.NewService(),
 		scopes:  scope.NewScopesService(db, i, p, s2s),
 
 		logger: slog.Default().
@@ -67,6 +69,7 @@ type authService struct {
 	db      AuthRepository
 	mint    jwt.Signer
 	indexer data.Indexer
+	creds   creds.Service
 	scopes  scope.ScopesService
 
 	logger *slog.Logger
@@ -76,10 +79,14 @@ type authService struct {
 func (s *authService) ValidateCredentials(username, password string) error {
 
 	if len(username) < 5 || len(password) > 255 {
+		s.logger.Error(fmt.Sprintf("username %s is either either too short or too long", username),
+			"err", fmt.Sprintf("expected between 5 adn 255; username length: %d", len(username)))
 		return errors.New(ErrInvalidUsernamePassword)
 	}
 
 	if len(password) < 16 || len(password) > 64 {
+		s.logger.Error(fmt.Sprintf("password for user %s is either too short or too long", username),
+			"err", fmt.Sprintf("expected between 16 and 64; password length: %d", len(password)))
 		return errors.New(ErrInvalidUsernamePassword)
 	}
 
@@ -87,15 +94,17 @@ func (s *authService) ValidateCredentials(username, password string) error {
 	userIndex, err := s.indexer.ObtainBlindIndex(username)
 	if err != nil {
 		s.logger.Error(fmt.Sprintf("%s for user %s lookup", ErrGenerateIndex, username), "err", err.Error())
-		return err
+		return errors.New(ErrInvalidUsernamePassword)
 	}
 
 	// find user account in persistence
 	user, err := s.db.FindUserAccount(userIndex)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return fmt.Errorf("user %s not found", username)
+			s.logger.Error(fmt.Sprintf("user not found: %s", username), "err", err.Error())
+			return errors.New(ErrInvalidUsernamePassword)
 		} else {
+			s.logger.Error(fmt.Sprintf("failed to query user account for user %s", username), "err", err.Error())
 			return fmt.Errorf("failed to query user account for user %s: %v", username, err)
 		}
 	}
@@ -113,14 +122,57 @@ func (s *authService) ValidateCredentials(username, password string) error {
 	}
 
 	// validate password
-	pw := []byte(password)
-	hash := []byte(user.Password)
-	if err := bcrypt.CompareHashAndPassword(hash, pw); err != nil {
-		s.logger.Error("failed to validate user password", "err", err.Error())
-		return errors.New(ErrInvalidUsernamePassword)
-	}
+	// check if user is using legacy bcrypt password
+	// if not, use argon2id verification
+	// if legacy, use bcrypt verification and silently convert to argon2id hash
+	if !user.Legacy {
+		// argon2id verification
+		// user is using argon2id password
+		valid, err := s.creds.VerifyPassword(password, user.Password)
+		if err != nil {
+			// with will be for formatting errors or decoding errors
+			s.logger.Error("failed to validate user password", "err", err.Error())
+			return errors.New(ErrInvalidUsernamePassword)
+		}
 
-	return nil
+		if !valid {
+			// invalid password
+			s.logger.Error("invalid user password")
+			return errors.New(ErrInvalidUsernamePassword)
+		}
+		return nil
+	} else {
+
+		// bcrypt verification
+		pw := []byte(password)
+		hash := []byte(user.Password)
+		if err := bcrypt.CompareHashAndPassword(hash, pw); err != nil {
+			s.logger.Error("failed to validate user password", "err", err.Error())
+			return errors.New(ErrInvalidUsernamePassword)
+		}
+
+		// silently convert to argon2id hash
+		go func(pw, ind string) {
+
+			newHash, err := s.creds.HashPassword(pw)
+			if err != nil {
+				// log only, do not return error to user
+				s.logger.Error("failed to silently convert user password to argon2id hash", "err", err.Error())
+				return
+			}
+
+			// save over the old bcrypt hash with new argon2id hash and set legacy to false
+			if err := s.db.UpdateLegacyPassword(false, newHash, ind); err != nil {
+				// log only, do not return error to user
+				s.logger.Error("failed to update user password to argon2id hash", "err", err.Error())
+				return
+			}
+
+			s.logger.Info(fmt.Sprintf("silently converted user %s password to argon2id hash", username))
+		}(password, userIndex)
+
+		return nil
+	}
 }
 
 // GetUserScopes gets the user scopes for user authentication service so that an authcode record can be created.
