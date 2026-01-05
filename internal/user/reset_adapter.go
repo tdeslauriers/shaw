@@ -13,7 +13,7 @@ type ResetRepository interface {
 	FindPasswordHistory(userIndex string) ([]UserPasswordHistory, error)
 
 	// UpdatePassword updates the user's password in the account table of database.
-	UpdatePassword(hash string, userIndex string) error
+	UpdatePassword(hash string, legacy bool, userIndex string) error
 
 	// InsertPasswordHistory inserts a new password record into the password history table.
 	InsertPasswordHistory(history PasswordHistory) error
@@ -43,11 +43,13 @@ func (r *resetRepository) FindPasswordHistory(userIndex string) ([]UserPasswordH
 			a.uuid AS user_uuid,
 			a.username,
 			a.password AS current_password,
+			a.legacy AS current_legacy,
 			a.enabled,
 			a.account_expired,
 			a.account_locked,
 			ph.uuid AS password_history_uuid,
 			ph.password AS history_password,
+			ph.legacy AS history_legacy,
 			ph.updated
 		FROM account a
 		LEFT OUTER JOIN password_history ph ON a.uuid = ph.account_uuid
@@ -62,13 +64,14 @@ func (r *resetRepository) FindPasswordHistory(userIndex string) ([]UserPasswordH
 }
 
 // UpdatePassword updates the user's password in the account table of database.
-func (r *resetRepository) UpdatePassword(hash string, userIndex string) error {
+func (r *resetRepository) UpdatePassword(hash string, legacy bool, userIndex string) error {
 
 	qry := `
-		UPDATE account 
-		SET password = ? 
+		UPDATE account SET 
+			password = ?,
+			legacy = ?
 		WHERE user_index = ?`
-	if err := data.UpdateRecord(r.sql, qry, hash, userIndex); err != nil {
+	if err := data.UpdateRecord(r.sql, qry, hash, legacy, userIndex); err != nil {
 		return err
 	}
 
@@ -81,10 +84,11 @@ func (r *resetRepository) InsertPasswordHistory(history PasswordHistory) error {
 	qry := `
 		INSERT INTO password_history (
 			uuid, 
-			password, 
+			password,
+			legacy,
 			updated, 
 			account_uuid
-		) VALUES (?, ?, ?, ?)`
+		) VALUES (?, ?, ?, ?, ?)`
 	if err := data.InsertRecord(r.sql, qry, history); err != nil {
 		return err
 	}

@@ -117,7 +117,8 @@ func (h *resetHandler) HandleReset(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.Contains(err.Error(), "disabled"),
 			strings.Contains(err.Error(), "locked"),
-			strings.Contains(err.Error(), "expired"):
+			strings.Contains(err.Error(), "expired"),
+			strings.Contains(err.Error(), "incorrect current password"):
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusUnauthorized,
 				Message:    err.Error(),

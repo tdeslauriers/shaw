@@ -49,6 +49,7 @@ CREATE INDEX idx_refresh_username ON refresh(username_index);
 CREATE TABLE password_history (
     uuid CHAR(36) NOT NULL PRIMARY KEY,
     password VARCHAR(255) NOT NULL,
+    legacy BOOLEAN NOT NULL DEFAULT TRUE,
     updated TIMESTAMP NOT NULL DEFAULT UTC_TIMESTAMP,
     account_uuid CHAR(36) NOT NULL,
     CONSTRAINT fk_pw_history_account_uuid FOREIGN KEY (account_uuid) REFERENCES account (uuid)

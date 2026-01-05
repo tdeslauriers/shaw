@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/profile"
 	"github.com/tdeslauriers/carapace/pkg/validate"
+	"github.com/tdeslauriers/shaw/internal/creds"
 	util "github.com/tdeslauriers/shaw/internal/definition"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -27,8 +29,9 @@ type ResetService interface {
 // NewResetService creates a new ResetService interface by returning a pointer to a new concrete implementation
 func NewResetService(db *sql.DB, i data.Indexer) ResetService {
 	return &resetService{
-		db:    NewResetRepository(db),
-		index: i,
+		db:     NewResetRepository(db),
+		index:  i,
+		hasher: creds.NewService(),
 
 		logger: slog.Default().
 			With(slog.String(util.PackageKey, util.PackageUser)).
@@ -40,8 +43,9 @@ var _ ResetService = (*resetService)(nil)
 
 // resetService is the concrete implementation of the ResetService interface.
 type resetService struct {
-	db    ResetRepository
-	index data.Indexer
+	db     ResetRepository
+	index  data.Indexer
+	hasher creds.Service
 
 	logger *slog.Logger
 }
@@ -111,28 +115,70 @@ func (s *resetService) ResetPassword(ctx context.Context, username string, cmd p
 	}
 
 	// validate current password
-	current := []byte(cmd.CurrentPassword)
-	currentHash := []byte(history[0].CurrentPassword)
-	if err := bcrypt.CompareHashAndPassword(currentHash, current); err != nil {
-		return fmt.Errorf("failed to validate current password for user: %w", err)
-	}
+	// need to check if legacy hashing is used
+	// if not legacy, use argon2id hashing, otherwise, use bcrypt
+	if !history[0].CurrentLegacy {
 
-	// hash new password
-	newHash, err := bcrypt.GenerateFromPassword([]byte(cmd.NewPassword), 13)
-	if err != nil {
-		return fmt.Errorf("failed to hash new password for user: %w", err)
-	}
+		// non-legacy hashing: argon2id
+		exists, err := s.hasher.VerifyPassword(cmd.CurrentPassword, history[0].CurrentPassword)
+		if err != nil {
+			// this means there was an error during verification, ie, coding or decoding, not a mismatch
+			s.logger.Error(fmt.Sprintf("error verifying current password with argon2id hashing for user %s", username),
+				"err", err.Error())
+			return errors.New("failed to validate current password for user")
+		}
+		if !exists {
+			s.logger.Error(fmt.Sprintf("incorrect current password provided for user %s using argon2id hashing", username))
+			return fmt.Errorf("incorrect current password")
+		}
+	} else {
 
-	// validate new password is not the same as any previous password
-	for _, h := range history {
-		// If no error, then a match => password has already been used.
-		if err := bcrypt.CompareHashAndPassword([]byte(h.HistoryPassword), []byte(cmd.NewPassword)); err == nil {
-			return fmt.Errorf("invalid: user's new password has been used previously: %s", h.Updated.Format("2006-01-02 15:04:05"))
+		// legacy hashing: bcrypt
+		current := []byte(cmd.CurrentPassword)
+		currentHash := []byte(history[0].CurrentPassword)
+		if err := bcrypt.CompareHashAndPassword(currentHash, current); err != nil {
+			s.logger.Error(fmt.Sprintf("incorrect current password provided for user %s using legacy bcrypt hashing", username),
+				"err", err.Error())
+			return errors.New("incorrect current password")
 		}
 	}
 
+	// validate new password is not the same as any previous password
+	// NOTE: password history could contain both legacy and non-legacy passwords, so need
+	// to check legacy field for each accordingly
+	for _, h := range history {
+
+		if !h.HistoryLegacy {
+
+			// non-legacy argon2id hashing
+			exists, err := s.hasher.VerifyPassword(cmd.NewPassword, h.HistoryPassword)
+			if err != nil {
+				// this means there was an error during verification, ie, coding or decoding, not a mismatch
+				return errors.New("failed to validate new password for user")
+			}
+
+			// this means there was a match => password has already been used.
+			if exists {
+				return fmt.Errorf("invalid: user's new password has been used previously: %s", h.Updated.Format("2006-01-02 15:04:05"))
+			}
+		} else {
+
+			// legacy bcrypt hashing
+			// If no error, then a match => password has already been used.
+			if err := bcrypt.CompareHashAndPassword([]byte(h.HistoryPassword), []byte(cmd.NewPassword)); err == nil {
+				return fmt.Errorf("invalid: user's new password has been used previously: %s", h.Updated.Format("2006-01-02 15:04:05"))
+			}
+		}
+	}
+
+	// hash new password in argon2id
+	newHash, err := s.hasher.HashPassword(cmd.NewPassword)
+	if err != nil {
+		return fmt.Errorf("failed to hash new password for user %s: %w", username, err)
+	}
+
 	// update password in persistent storage
-	if err := s.db.UpdatePassword(string(newHash), index); err != nil {
+	if err := s.db.UpdatePassword(newHash, false, index); err != nil {
 		return fmt.Errorf("failed to update user %s's password: %v", username, err)
 	}
 
@@ -149,6 +195,7 @@ func (s *resetService) ResetPassword(ctx context.Context, username string, cmd p
 		record := PasswordHistory{
 			Id:        id.String(),
 			Password:  string(newHash),
+			Legacy:    false, // new password always non-legacy hashing -> argon2id
 			Updated:   time.Now().UTC().Format("2006-01-02 15:04:05"),
 			AccountId: history[0].AccountId,
 		}

@@ -120,6 +120,7 @@ type service struct {
 type PasswordHistory struct {
 	Id        string `json:"id" db:"uuid"`
 	Password  string `json:"password" db:"password"`
+	Legacy    bool   `json:"legacy" db:"legacy"`
 	Updated   string `json:"updated" db:"updated"`
 	AccountId string `json:"account_uuid" db:"account_uuid"`
 }
@@ -131,6 +132,7 @@ type UserPasswordHistory struct {
 	AccountId       string `json:"user_uuid" db:"user_uuid"`
 	Username        string `db:"username" json:"username"`
 	CurrentPassword string `db:"current_password" json:"current_password,omitempty"`
+	CurrentLegacy   bool   `db:"current_legacy" json:"current_legacy,omitempty"`
 	Enabled         bool   `db:"enabled"  json:"enabled,omitempty"`
 	AccountExpired  bool   `db:"acccount_expired" json:"account_expired,omitempty"`
 	AccountLocked   bool   `db:"account_locked" json:"account_locked,omitempty"`
@@ -138,6 +140,7 @@ type UserPasswordHistory struct {
 	// password_history table
 	PasswordHisotryId string          `json:"password_history_id" db:"password_history_uuid"`
 	HistoryPassword   string          `json:"history_password" db:"history_password"`
+	HistoryLegacy     bool            `json:"history_legacy" db:"history_legacy"`
 	Updated           data.CustomTime `json:"updated" db:"updated"`
 }
 
