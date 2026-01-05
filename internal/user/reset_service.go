@@ -179,7 +179,7 @@ func (s *resetService) ResetPassword(ctx context.Context, username string, cmd p
 
 	// update password in persistent storage
 	if err := s.db.UpdatePassword(newHash, false, index); err != nil {
-		return fmt.Errorf("failed to update user %s's password: %v", username, err)
+		return fmt.Errorf("failed to update user %s's password in db: %w", username, err)
 	}
 
 	// insert new password history record into password_history table
@@ -188,7 +188,8 @@ func (s *resetService) ResetPassword(ctx context.Context, username string, cmd p
 
 		id, err := uuid.NewRandom()
 		if err != nil {
-			log.Error("failed to generate uuid for user's new password history record", "err", err.Error())
+			log.Error(fmt.Sprintf("failed to generate uuid for user %s's new password history record", username),
+				"err", err.Error())
 			return
 		}
 
@@ -201,12 +202,12 @@ func (s *resetService) ResetPassword(ctx context.Context, username string, cmd p
 		}
 
 		if err := s.db.InsertPasswordHistory(record); err != nil {
-			log.Error("failed to insert new password history record for user",
+			log.Error(fmt.Sprintf("failed to insert new password history record for user %s", username),
 				"err", err.Error())
 			return
 		}
 
-		log.Info("successfully updated user's password history")
+		log.Info(fmt.Sprintf("successfully updated user %s's password history", username))
 	}()
 
 	return nil
