@@ -188,7 +188,13 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// generate and persist auth code
-	authCode, err := h.oauth.GenerateAuthCode(cmd.Username, cmd.Nonce, cmd.ClientId, cmd.Redirect, scopes)
+	authCode, err := h.oauth.GenerateAuthCode(
+		cmd.Username, 
+		cmd.Nonce, 
+		cmd.ClientId, 
+		cmd.Redirect, 
+		scopes,
+	)
 	if err != nil {
 		log.Error(fmt.Sprintf("failed to generate auth code for user %s", cmd.Username), "err", err.Error())
 		e := connect.ErrorHttp{

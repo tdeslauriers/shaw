@@ -39,7 +39,13 @@ type Service interface {
 
 	// GenerateAuthCode generates an auth code for and persists it to the db along with the user's scopes, nonce, the client, and the redirect url,
 	// associating it with the user so that it can be used to mint an access token and Id token on callback from the client
-	GenerateAuthCode(username, nonce, client, redirect string, scopes []ran.Scope) (string, error)
+	GenerateAuthCode(
+		username string,
+		nonce string,
+		client string,
+		redirect string,
+		scopes []ran.Scope,
+	) (string, error)
 
 	// RetrieveUserData retrieves the user data associated with the auth code, if it exists and is valid.
 	// If any of the data provided in the AccessTokenCmd is invalid, an error is returned.
@@ -152,7 +158,13 @@ func (s *service) IsValidClient(clientId, username string) (bool, error) {
 }
 
 // GenerateAuthCode implements the OauthFlowService interface
-func (s *service) GenerateAuthCode(username, nonce, clientId, redirect string, scopes []ran.Scope) (string, error) {
+func (s *service) GenerateAuthCode(
+	username string,
+	nonce string,
+	clientId string,
+	redirect string,
+	scopes []ran.Scope,
+) (string, error) {
 
 	// check for empty fields: redundant check, but good practice
 	if username == "" || nonce == "" || clientId == "" || redirect == "" || len(scopes) == 0 {

@@ -107,6 +107,7 @@ func (r *oauthRepository) FindUserAccount(index string) (*apiUser.UserAccount, e
 			username, 
 			user_index, 
 			password, 
+			legacy,
 			firstname, 
 			lastname, 
 			birth_date, 
