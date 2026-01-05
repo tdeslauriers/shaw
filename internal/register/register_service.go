@@ -15,12 +15,11 @@ import (
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	ran "github.com/tdeslauriers/ran/pkg/api/scopes"
+	"github.com/tdeslauriers/shaw/internal/creds"
 	util "github.com/tdeslauriers/shaw/internal/definition"
 	"github.com/tdeslauriers/shaw/internal/user"
 	apiReg "github.com/tdeslauriers/shaw/pkg/api/register"
 	apiUser "github.com/tdeslauriers/shaw/pkg/api/user"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 var defaultScopes []string = []string{"r:shaw:profile:*", "w:shaw:profile:*", "r:silhouette:profile:*", "w:silhouette:profile:*", "r:junk:*"}
@@ -44,6 +43,7 @@ func NewService(
 		indexer: i,
 		tkn:     p,
 		s2s:     s2s,
+		hasher:  creds.NewService(),
 
 		logger: slog.Default().
 			With(slog.String(util.PackageKey, util.PackageRegister)).
@@ -59,6 +59,7 @@ type service struct {
 	indexer data.Indexer
 	tkn     provider.S2sTokenProvider
 	s2s     *connect.S2sCaller
+	hasher  creds.Service
 
 	logger *slog.Logger
 }
@@ -265,9 +266,9 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 	go func(pw *string, ch chan error, wg *sync.WaitGroup) {
 		defer wgBuild.Done()
 
-		hashed, err := bcrypt.GenerateFromPassword([]byte(cmd.Password), 13)
+		hashed, err := s.hasher.HashPassword(cmd.Password)
 		if err != nil {
-			msg := fmt.Sprintf("failed to generate bcrypt password hash for username/email (%s)", cmd.Username)
+			msg := fmt.Sprintf("failed to generate argon2 password hash for username/email (%s)", cmd.Username)
 			log.Error(msg, "err", err.Error())
 			ch <- errors.New(msg)
 		}
