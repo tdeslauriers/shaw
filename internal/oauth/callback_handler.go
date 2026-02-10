@@ -207,7 +207,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	idClaims := jwt.Claims{
 		Issuer:     util.ServiceName,
 		Subject:    userData.Username,
-		Audience:   []string{userData.ClientId}, // different from access token which si aimed at services
+		Audience:   []string{userData.ClientId}, // different from access token which is aimed at services
 		IssuedAt:   now.Unix(),
 		NotBefore:  now.Unix(),
 		Expires:    now.Add(authentication.IdTokenDuration * time.Minute).Unix(),

@@ -35,4 +35,5 @@ const (
 
 	ServiceIdentity = "shaw"
 	ServiceS2s      = "ran"
+	ServiceProfile  = "silhoette"
 )

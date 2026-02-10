@@ -1,7 +1,10 @@
 package oauth
 
 import (
+	"strings"
+
 	"github.com/tdeslauriers/carapace/pkg/data"
+	"github.com/tdeslauriers/shaw/internal/definition"
 )
 
 const (
@@ -130,4 +133,35 @@ type OauthUserData struct {
 	AuthcodeCreatedAt data.CustomTime `json:"created_at" db:"created_at"`
 	AuthcodeClaimed   bool            `json:"claimed" db:"claimed"`
 	AuthcodeRevoked   bool            `json:"revoked" db:"revoked"`
+}
+
+// BuildAudiences is a helper func to build audience []string from a string of space-delimited scope string values, eg., "w:service:* r:service:*"
+// Note: it is included in this package because it refers directly to the Scope struct in this package.
+func BuildAudiences(scopes string) (audiences []string) {
+
+	var services []string
+
+	// split scopes by space
+	scps := strings.Split(scopes, " ")
+
+	// iterate over each scope and split by : to get the service name
+	for _, scope := range scps {
+		chunk := strings.Split(scope, ":") // splits scope by : -> w:service:*
+		services = append(services, chunk[1])
+	}
+
+	// build unique (no duplicates) list of services
+	uniqueServices := make(map[string]struct{}, 0) // ie, one of each value
+	for _, service := range services {
+		if _, ok := uniqueServices[service]; !ok {
+			uniqueServices[service] = struct{}{}
+			audiences = append(audiences, service)
+		}
+	}
+
+	// add silhouette as audience for profile service since a user may access
+	// their own profile data with a valid access token, no scopes necessary
+	audiences = append(audiences, definition.ServiceProfile)
+
+	return audiences
 }
