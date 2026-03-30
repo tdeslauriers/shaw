@@ -188,171 +188,173 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 
 	// handle crypto/encryption operations on user data concurrently
 	var (
-		wgBuild   sync.WaitGroup
-		id        string
-		username  string
-		password  string
-		firstname string
-		lastname  string
-		dob       string
-		slug      string
-		slugIndex string
+		wgBuild     sync.WaitGroup
+		idCh        = make(chan string, 1)
+		usernameCh  = make(chan string, 1)
+		passwordCh  = make(chan string, 1)
+		firstnameCh = make(chan string, 1)
+		lastnameCh  = make(chan string, 1)
+		dobCh       = make(chan string, 1)
+		slugCh      = make(chan string, 1)
+		slugIndexCh = make(chan string, 1)
 
 		buildErrChan = make(chan error, 10)
 	)
 
 	// build user record / encrypt user data for persistance
 	wgBuild.Add(1)
-	go func(id *string, ch chan error, wg *sync.WaitGroup) {
+	go func(idCh chan string, errCh chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
 		i, err := uuid.NewRandom()
 		if err != nil {
 			msg := fmt.Sprintf("failed to create uuid for username/email %s", cmd.Username)
 			log.Error(msg, "err", err.Error())
-			ch <- errors.New(msg)
+			errCh <- errors.New(msg)
 		}
 
-		*id = i.String()
-	}(&id, buildErrChan, &wgBuild)
+		idCh <- i.String()
+	}(idCh, buildErrChan, &wgBuild)
 
 	// build user slug and slug index
 	wgBuild.Add(1)
-	go func(slug, index *string, ch chan error, wg *sync.WaitGroup) {
+	go func(slugCh, slugIndexCh chan string, errCh chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
 		// create user slug value
-		sg, err := uuid.NewRandom()
+		slug, err := uuid.NewRandom()
 		if err != nil {
 			msg := fmt.Sprintf("failed to create user slug for username/email %s: %v", cmd.Username, err)
 			log.Error(msg, "err", err.Error())
-			ch <- errors.New(msg)
+			errCh <- errors.New(msg)
 		}
 
-		sgIndex, err := s.indexer.ObtainBlindIndex(sg.String())
+		sgIndex, err := s.indexer.ObtainBlindIndex(slug.String())
 		if err != nil {
 			msg := fmt.Sprintf("failed to create slug index for username/email %s", cmd.Username)
-			ch <- errors.New(msg)
+			errCh <- errors.New(msg)
 		}
 
-		encrypted, err := s.cipher.EncryptServiceData([]byte(sg.String()))
+		encrypted, err := s.cipher.EncryptServiceData([]byte(slug.String()))
 		if err != nil {
 			msg := fmt.Sprintf("%s user slug for username/email %s: %v", FieldLevelEncryptErrMsg, cmd.Username, err)
 			log.Error(msg, "err", err.Error())
-			ch <- errors.New(msg)
+			errCh <- errors.New(msg)
 		}
 
-		*slug = encrypted
-		*index = sgIndex
-	}(&slug, &slugIndex, buildErrChan, &wgBuild)
+		slugCh <- encrypted
+		slugIndexCh <- sgIndex
+	}(slugCh, slugIndexCh, buildErrChan, &wgBuild)
 
 	// encrypt username
 	wgBuild.Add(1)
-	go func(user *string, ch chan error, wg *sync.WaitGroup) {
+	go func(userCh chan string, errCh chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
 		encrypted, err := s.cipher.EncryptServiceData([]byte(cmd.Username))
 		if err != nil {
 			msg := fmt.Sprintf("%s username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			log.Error(msg, "err", err.Error())
-			ch <- errors.New(msg)
+			errCh <- errors.New(msg)
 		}
 
-		*user = encrypted
-	}(&username, buildErrChan, &wgBuild)
+		userCh <- encrypted
+	}(usernameCh, buildErrChan, &wgBuild)
 
 	// hash password
 	wgBuild.Add(1)
-	go func(pw *string, ch chan error, wg *sync.WaitGroup) {
+	go func(pwCh chan string, errCh chan error, wg *sync.WaitGroup) {
 		defer wgBuild.Done()
 
 		hashed, err := s.hasher.HashPassword(cmd.Password)
 		if err != nil {
 			msg := fmt.Sprintf("failed to generate argon2 password hash for username/email (%s)", cmd.Username)
 			log.Error(msg, "err", err.Error())
-			ch <- errors.New(msg)
+			errCh <- errors.New(msg)
 		}
 
-		*pw = string(hashed)
-	}(&password, buildErrChan, &wgBuild)
+		pwCh <- string(hashed)
+	}(passwordCh, buildErrChan, &wgBuild)
 
 	// encrypt firstname
 	wgBuild.Add(1)
-	go func(first *string, ch chan error, wg *sync.WaitGroup) {
+	go func(firstCh chan string, errCh chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
 		encrypted, err := s.cipher.EncryptServiceData([]byte(cmd.Firstname))
 		if err != nil {
 			msg := fmt.Sprintf("%s first name for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			log.Error(msg, "err", err.Error())
-			ch <- errors.New(msg)
+			errCh <- errors.New(msg)
 		}
 
-		*first = encrypted
-	}(&firstname, buildErrChan, &wgBuild)
+		firstCh <- encrypted
+	}(firstnameCh, buildErrChan, &wgBuild)
 
 	// encrypt lastname
 	wgBuild.Add(1)
-	go func(last *string, ch chan error, wg *sync.WaitGroup) {
+	go func(lastCh chan string, errCh chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
 		encrypted, err := s.cipher.EncryptServiceData([]byte(cmd.Lastname))
 		if err != nil {
 			msg := fmt.Sprintf("%s lastname for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			log.Error(msg, "err", err.Error())
-			ch <- errors.New(msg)
+			errCh <- errors.New(msg)
 		}
 
-		*last = encrypted
-	}(&lastname, buildErrChan, &wgBuild)
+		lastCh <- encrypted
+	}(lastnameCh, buildErrChan, &wgBuild)
 
 	// encrypt dob
 	wgBuild.Add(1)
-	go func(dob *string, ch chan error, wg *sync.WaitGroup) {
+	go func(dobCh chan string, errCh chan error, wg *sync.WaitGroup) {
 		defer wg.Done()
 
 		encrypted, err := s.cipher.EncryptServiceData([]byte(cmd.Birthdate))
 		if err != nil {
 			msg := fmt.Sprintf("%s dob for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			log.Error(msg, "err", err.Error())
-			ch <- errors.New(msg)
+			errCh <- errors.New(msg)
 		}
 
-		*dob = encrypted
-	}(&dob, buildErrChan, &wgBuild)
+		dobCh <- encrypted
+	}(dobCh, buildErrChan, &wgBuild)
 
 	// wait for all build operations to complete
 	wgBuild.Wait()
+	close(idCh)
+	close(usernameCh)
+	close(passwordCh)
+	close(firstnameCh)
+	close(lastnameCh)
+	close(dobCh)
+	close(slugCh)
+	close(slugIndexCh)
 	close(buildErrChan)
 
-	// if any build errors, aggregate and return
-	errCount = len(buildErrChan)
-	if errCount > 0 {
-		var builder strings.Builder
-		count := 0
-		for e := range buildErrChan {
-			builder.WriteString(e.Error())
-			if errCount > 1 && count < errCount-1 {
-				builder.WriteString("; ")
-			}
-			count++
+	if len(buildErrChan) > 0 {
+		var errs []error
+		for err := range buildErrChan {
+			errs = append(errs, err)
 		}
-		return errors.New(builder.String())
+		log.Error(fmt.Sprintf("failed to build user record for username/email %s", cmd.Username), "err", errs)
+		return errors.New(BuildUserErrMsg)
 	}
 
 	createdAt := time.Now().UTC()
 
 	account := apiUser.UserAccount{
-		Uuid:           id,
-		Username:       username, // encrypted username
+		Uuid:           <-idCh,
+		Username:       <-usernameCh, // encrypted username
 		UserIndex:      userIndex,
-		Password:       password,  // hashed password
-		Legacy:         false,     // all new registrations use argon2id
-		Firstname:      firstname, // encrypted firstname
-		Lastname:       lastname,  // encrypted lastname
-		Birthdate:      dob,       // encrypted dob
-		Slug:           slug,      // encrypted slug
-		SlugIndex:      slugIndex,
+		Password:       <-passwordCh,  // hashed password
+		Legacy:         false,         // all new registrations use argon2id
+		Firstname:      <-firstnameCh, // encrypted firstname
+		Lastname:       <-lastnameCh,  // encrypted lastname
+		Birthdate:      <-dobCh,       // encrypted dob
+		Slug:           <-slugCh,      // encrypted slug
+		SlugIndex:      <-slugIndexCh,
 		CreatedAt:      createdAt.Format("2006-01-02 15:04:05"),
 		Enabled:        true, // this will change to false when email verification built
 		AccountExpired: false,
@@ -448,7 +450,7 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 			}
 
 			log.Info(fmt.Sprintf("user %s successfully assigned default scope %s", cmd.Username, scope.Name))
-		}(id, createdAt, scope, xrefErrChan, &wgXref)
+		}(account.Uuid, createdAt, scope, xrefErrChan, &wgXref)
 	}
 
 	// Associate user with client
@@ -469,7 +471,7 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 		}
 
 		log.Info(fmt.Sprintf("user %s successfully associated with client %s", cmd.Username, ""))
-	}(id, createdAt.Format("2006-01-02 15:04:05"), client, xrefErrChan, &wgXref)
+	}(account.Uuid, createdAt.Format("2006-01-02 15:04:05"), client, xrefErrChan, &wgXref)
 
 	// wait for all xref operations to complete
 	wgXref.Wait()
