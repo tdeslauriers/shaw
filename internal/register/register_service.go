@@ -359,69 +359,40 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 		AccountLocked:  false,
 	}
 
-	var (
-		wgPersist      sync.WaitGroup
-		persistErrChan = make(chan error, 2)
-	)
+	// insert user into database
+	if err := s.db.InsertUserAccount(account); err != nil {
+		log.Error(fmt.Sprintf("failed to insert (%s) user record into account table in db", cmd.Username), "err", err.Error())
+		return errors.New(BuildUserErrMsg)
 
-	wgPersist.Add(1)
-	go func(a apiUser.UserAccount, ch chan error, wg *sync.WaitGroup) {
-		defer wg.Done()
+	}
 
-		// insert user into database
-		if err := s.db.InsertUserAccount(a); err != nil {
-			log.Error(fmt.Sprintf("failed to insert (%s) user record into account table in db", cmd.Username), "err", err.Error())
-			ch <- errors.New(BuildUserErrMsg)
-			return
-		}
-
-		log.Info(fmt.Sprintf("user %s successfully saved in account table", cmd.Username))
-	}(account, persistErrChan, &wgPersist)
+	log.Info(fmt.Sprintf("user %s successfully saved in account table", cmd.Username))
 
 	// persist password to password history table
-	wgPersist.Add(1)
-	go func(a apiUser.UserAccount, ch chan error, wg *sync.WaitGroup) {
-		defer wg.Done()
+	// need to wait for account to be created or may constraint may fail if
+	// password history record is created before account record due to concurrent build operations
+	pwId, err := uuid.NewRandom()
+	if err != nil {
+		log.Error(fmt.Sprintf("failed to create uuid for password history record for registering user %s", cmd.Username), "err", err.Error())
+		return fmt.Errorf("failed to create uuid for password history record for registering user %s", cmd.Username)
+	}
 
-		pwId, err := uuid.NewRandom()
-		if err != nil {
-			ch <- fmt.Errorf("failed to create uuid for password history record for registering user %s", cmd.Username)
-			return
-		}
+	history := user.PasswordHistory{
+		Id:        pwId.String(),
+		Password:  account.Password,
+		Legacy:    false,
+		Updated:   account.CreatedAt,
+		AccountId: account.Uuid,
+	}
 
-		history := user.PasswordHistory{
-			Id:        pwId.String(),
-			Password:  a.Password,
-			Legacy:    false,
-			Updated:   a.CreatedAt,
-			AccountId: a.Uuid,
-		}
+	if err := s.db.InsertPasswordHistory(history); err != nil {
+		log.Error(fmt.Sprintf("failed to insert password history record for registering user %s", cmd.Username), "err", err.Error())
+		return fmt.Errorf("failed to insert password history record for registering user %s: %v", cmd.Username, err)
+	}
 
-		if err := s.db.InsertPasswordHistory(history); err != nil {
-			ch <- fmt.Errorf("failed to insert password history record for registering user %s: %v", cmd.Username, err)
-			return
-		}
-		log.Info(fmt.Sprintf("password history record successfully saved for registering user %s", cmd.Username))
-	}(account, persistErrChan, &wgPersist)
+	log.Info(fmt.Sprintf("password history record successfully saved for registering user %s", cmd.Username))
 
 	// wait for user to be saved, otherwise no need to continue.
-	wgPersist.Wait()
-	close(persistErrChan)
-
-	// consolidate and return err if user account failed to save
-	errCount = len(persistErrChan)
-	if errCount > 0 {
-		var builder strings.Builder
-		count := 0
-		for e := range persistErrChan {
-			builder.WriteString(e.Error())
-			if count < errCount-1 {
-				builder.WriteString("; ")
-			}
-			count++
-		}
-		return errors.New(builder.String())
-	}
 
 	// get s2s service endpoint token to retreive scopes
 	s2stoken, err := s.tkn.GetServiceToken(ctx, util.ServiceNameS2s)
