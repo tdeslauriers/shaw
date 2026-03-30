@@ -38,7 +38,7 @@ CREATE TABLE refresh (
     refresh_token VARCHAR(128) NOT NULL,
     username VARCHAR(128) NOT NULL,
     username_index VARCHAR(128) NOT NULL,
-    scopes VARCHAR(1024) NOT NULL,
+    scopes VARCHAR(2048) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT UTC_TIMESTAMP,
     revoked BOOLEAN NOT NULL
 );
@@ -64,7 +64,7 @@ CREATE TABLE authcode (
     nonce VARCHAR(128) NOT NULL,
     client_uuid VARCHAR(128) NOT NULL,
     redirect_url VARCHAR(2048) NOT NULL,
-    scopes VARCHAR(1024) NOT NULL,
+    scopes VARCHAR(2048) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT UTC_TIMESTAMP,
     claimed BOOLEAN NOT NULL,
     revoked BOOLEAN NOT NULL

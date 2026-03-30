@@ -261,7 +261,7 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 		*user = encrypted
 	}(&username, buildErrChan, &wgBuild)
 
-	// bcrypt hash password
+	// hash password
 	wgBuild.Add(1)
 	go func(pw *string, ch chan error, wg *sync.WaitGroup) {
 		defer wgBuild.Done()
@@ -346,7 +346,7 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 		Uuid:           id,
 		Username:       username, // encrypted username
 		UserIndex:      userIndex,
-		Password:       password,  // encrypted password
+		Password:       password,  // hashed password
 		Legacy:         false,     // all new registrations use argon2id
 		Firstname:      firstname, // encrypted firstname
 		Lastname:       lastname,  // encrypted lastname
@@ -392,12 +392,13 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 		history := user.PasswordHistory{
 			Id:        pwId.String(),
 			Password:  a.Password,
+			Legacy:    false,
 			Updated:   a.CreatedAt,
 			AccountId: a.Uuid,
 		}
 
 		if err := s.db.InsertPasswordHistory(history); err != nil {
-			ch <- fmt.Errorf("failed to insert password history record for registering user %s", cmd.Username)
+			ch <- fmt.Errorf("failed to insert password history record for registering user %s: %v", cmd.Username, err)
 			return
 		}
 		log.Info(fmt.Sprintf("password history record successfully saved for registering user %s", cmd.Username))

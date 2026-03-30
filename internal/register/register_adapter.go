@@ -95,6 +95,7 @@ func (r *registerRepository) InsertUserAccount(account apiUser.UserAccount) erro
 			username, 
 			user_index, 
 			password, 
+			legacy,
 			firstname, 
 			lastname, 
 			birth_date, 
@@ -104,7 +105,7 @@ func (r *registerRepository) InsertUserAccount(account apiUser.UserAccount) erro
 			enabled, 
 			account_expired, 
 			account_locked
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	if err := data.InsertRecord(r.db, qry, account); err != nil {
 		return err
@@ -120,9 +121,10 @@ func (r *registerRepository) InsertPasswordHistory(history user.PasswordHistory)
 		INSERT INTO password_history (
 			uuid, 
 			password, 
+			legacy,
 			updated, 
 			account_uuid
-		) VALUES (?, ?, ?, ?)`
+		) VALUES (?, ?, ?, ?, ?)`
 
 	if err := data.InsertRecord(r.db, qry, history); err != nil {
 		return err
