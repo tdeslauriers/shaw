@@ -62,7 +62,6 @@ func (u *Profile) ValidateCmd() error {
 	// Slug may or may not be present depending on the operation,
 	// if it is supposed to be present, and is not, that will need to be checked elsewhere
 	if u.Slug != "" && !validate.IsValidUuid(u.Slug) {
-		fmt.Printf("VALIDATE")
 		return fmt.Errorf("invalid or not well formatted slug")
 	}
 
@@ -189,6 +188,6 @@ type UserAccount struct {
 	SlugIndex      string `db:"slug_index" json:"slug_index,omitempty"`
 	CreatedAt      string `db:"created_at" json:"created_at"`
 	Enabled        bool   `db:"enabled"  json:"enabled,omitempty"`
-	AccountExpired bool   `db:"acccount_expired" json:"account_expired,omitempty"`
+	AccountExpired bool   `db:"account_expired" json:"account_expired,omitempty"`
 	AccountLocked  bool   `db:"account_locked" json:"account_locked,omitempty"`
 }

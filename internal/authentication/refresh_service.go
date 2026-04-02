@@ -55,7 +55,7 @@ func (r *refresh) GetRefreshToken(ctx context.Context, refreshToken string) (*ty
 	// decrypt refresh token, client id, and username
 	var (
 		wg      sync.WaitGroup
-		errChan = make(chan error, 3)
+		errChan = make(chan error, 4)
 
 		decryptedRefresh  []byte
 		decryptedClientId []byte

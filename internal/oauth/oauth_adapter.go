@@ -27,6 +27,9 @@ type OAuthRepository interface {
 
 	// InsertAuthcodeAccountXref inserts a new authcode-account cross-reference record into the database.
 	InsertAuthcodeAccountXref(xref AuthcodeAccount) error
+
+	// UpdateAuthCodeClaimed updates the state of the authcode data row claimed field
+	UpdateAuthCodeClaimed(index string, claimed bool) error
 }
 
 // NewOAuthRepository creates a new implementation of the OAuth repository interface, returning
@@ -196,6 +199,21 @@ func (r *oauthRepository) InsertAuthcodeAccountXref(xref AuthcodeAccount) error 
 		) VALUES (?, ?, ?, ?)`
 
 	if err := data.InsertRecord(r.db, qry, xref); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// UpdateAuthCodeClaimed updates the state of the authcode data claimed field
+func (r *oauthRepository) UpdateAuthCodeClaimed(index string, claimed bool) error {
+
+	qry := `
+		UPDATE authcode
+		SET claimed = ?
+		WHERE authcode_index = ?`
+
+	if err := data.UpdateRecord(r.db, qry, claimed, index); err != nil {
 		return err
 	}
 

@@ -69,7 +69,7 @@ CREATE TABLE authcode (
     claimed BOOLEAN NOT NULL,
     revoked BOOLEAN NOT NULL
 );
-CREATE UNIQUE INDEX idx_authcode ON authcode(auth_code);
+CREATE UNIQUE INDEX idx_authcode ON authcode(authcode);
 
 -- auth code account xref table
 CREATE TABLE authcode_account (

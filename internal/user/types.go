@@ -134,7 +134,7 @@ type UserPasswordHistory struct {
 	CurrentPassword string `db:"current_password" json:"current_password,omitempty"`
 	CurrentLegacy   bool   `db:"current_legacy" json:"current_legacy,omitempty"`
 	Enabled         bool   `db:"enabled"  json:"enabled,omitempty"`
-	AccountExpired  bool   `db:"acccount_expired" json:"account_expired,omitempty"`
+	AccountExpired  bool   `db:"account_expired" json:"account_expired,omitempty"`
 	AccountLocked   bool   `db:"account_locked" json:"account_locked,omitempty"`
 
 	// password_history table

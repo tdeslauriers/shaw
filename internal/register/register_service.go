@@ -211,6 +211,7 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 			msg := fmt.Sprintf("failed to create uuid for username/email %s", cmd.Username)
 			log.Error(msg, "err", err.Error())
 			errCh <- errors.New(msg)
+			return
 		}
 
 		idCh <- i.String()
@@ -227,12 +228,14 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 			msg := fmt.Sprintf("failed to create user slug for username/email %s: %v", cmd.Username, err)
 			log.Error(msg, "err", err.Error())
 			errCh <- errors.New(msg)
+			return
 		}
 
 		sgIndex, err := s.indexer.ObtainBlindIndex(slug.String())
 		if err != nil {
 			msg := fmt.Sprintf("failed to create slug index for username/email %s", cmd.Username)
 			errCh <- errors.New(msg)
+			return
 		}
 
 		encrypted, err := s.cipher.EncryptServiceData([]byte(slug.String()))
@@ -240,6 +243,7 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 			msg := fmt.Sprintf("%s user slug for username/email %s: %v", FieldLevelEncryptErrMsg, cmd.Username, err)
 			log.Error(msg, "err", err.Error())
 			errCh <- errors.New(msg)
+			return
 		}
 
 		slugCh <- encrypted
@@ -256,6 +260,7 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 			msg := fmt.Sprintf("%s username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			log.Error(msg, "err", err.Error())
 			errCh <- errors.New(msg)
+			return
 		}
 
 		userCh <- encrypted
@@ -271,6 +276,7 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 			msg := fmt.Sprintf("failed to generate argon2 password hash for username/email (%s)", cmd.Username)
 			log.Error(msg, "err", err.Error())
 			errCh <- errors.New(msg)
+			return
 		}
 
 		pwCh <- string(hashed)
@@ -286,6 +292,7 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 			msg := fmt.Sprintf("%s first name for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			log.Error(msg, "err", err.Error())
 			errCh <- errors.New(msg)
+			return
 		}
 
 		firstCh <- encrypted
@@ -301,6 +308,7 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 			msg := fmt.Sprintf("%s lastname for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			log.Error(msg, "err", err.Error())
 			errCh <- errors.New(msg)
+			return
 		}
 
 		lastCh <- encrypted
@@ -316,6 +324,7 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 			msg := fmt.Sprintf("%s dob for username/email (%s)", FieldLevelEncryptErrMsg, cmd.Username)
 			log.Error(msg, "err", err.Error())
 			errCh <- errors.New(msg)
+			return
 		}
 
 		dobCh <- encrypted
@@ -365,7 +374,6 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 	if err := s.db.InsertUserAccount(account); err != nil {
 		log.Error(fmt.Sprintf("failed to insert (%s) user record into account table in db", cmd.Username), "err", err.Error())
 		return errors.New(BuildUserErrMsg)
-
 	}
 
 	log.Info(fmt.Sprintf("user %s successfully saved in account table", cmd.Username))
@@ -429,7 +437,7 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 	// insert xrefs
 	var (
 		wgXref      sync.WaitGroup
-		xrefErrChan = make(chan error)
+		xrefErrChan = make(chan error, len(defaults)+1)
 	)
 	for _, scope := range defaults {
 

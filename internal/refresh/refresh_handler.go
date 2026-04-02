@@ -120,10 +120,21 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 
 	// check if refresh token is expired
 	if refresh.CreatedAt.Add(time.Duration(12 * time.Hour)).Before(now) {
-		log.Error("user refresh token xxxxxx-%s is expired for user %s", refresh.RefreshToken[len(refresh.RefreshToken)-6:], refresh.Username)
+		log.Error(fmt.Sprintf("user refresh token xxxxxx-%s is expired for user %s", refresh.RefreshToken[len(refresh.RefreshToken)-6:], refresh.Username))
 		e := connect.ErrorHttp{
 			StatusCode: http.StatusUnauthorized,
 			Message:    "refresh token is expired",
+		}
+		e.SendJsonErr(w)
+		return
+	}
+
+	// check if refresh token is revoked
+	if refresh.Revoked {
+		log.Error(fmt.Sprintf("user refresh token xxxxxx-%s is revoked for user %s", refresh.RefreshToken[len(refresh.RefreshToken)-6:], refresh.Username))
+		e := connect.ErrorHttp{
+			StatusCode: http.StatusUnauthorized,
+			Message:    "refresh token is revoked",
 		}
 		e.SendJsonErr(w)
 		return
@@ -226,7 +237,7 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		RefreshToken: refreshToken.String(),
 		Username:     u.Username,
 		Scopes:       refresh.Scopes,
-		CreatedAt:    data.CustomTime{Time: time.Unix(now.Unix(), 0).UTC()},
+		CreatedAt:    refresh.CreatedAt, // original creation time is maintained to prevent endless refresh token generation
 		Revoked:      false,
 	}
 

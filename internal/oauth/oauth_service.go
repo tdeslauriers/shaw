@@ -50,6 +50,10 @@ type Service interface {
 	// RetrieveUserData retrieves the user data associated with the auth code, if it exists and is valid.
 	// If any of the data provided in the AccessTokenCmd is invalid, an error is returned.
 	RetrieveUserData(cmd oauth.AccessTokenCmd) (*OauthUserData, error)
+
+	// MarkAuthCodeClaimed updates the state of the authcode data row to be claimed so that it cannot be used
+	// more than once
+	MarkAuthCodeClaimed(authcode string) error
 }
 
 var _ Service = (*service)(nil)
@@ -480,18 +484,18 @@ func (s *service) RetrieveUserData(cmd oauth.AccessTokenCmd) (*OauthUserData, er
 	// perform expiry, revoked, enabled, etc., checks before decryption
 	// check if authcode revoked
 	if user.AuthcodeRevoked {
-		return nil, fmt.Errorf("%s (xxxxxx-%s): %v", ErrAuthcodeRevoked, cmd.AuthCode[len(cmd.AuthCode)-6:], err)
+		return nil, fmt.Errorf("%s (xxxxxx-%s)", ErrAuthcodeRevoked, cmd.AuthCode[len(cmd.AuthCode)-6:])
 	}
 
 	// check if auth code has already been claimed
 	if user.AuthcodeClaimed {
-		return nil, fmt.Errorf("%s (xxxxxx-%s): %v", ErrAuthcodeClaimed, cmd.AuthCode[len(cmd.AuthCode)-6:], err)
+		return nil, fmt.Errorf("%s (xxxxxx-%s)", ErrAuthcodeClaimed, cmd.AuthCode[len(cmd.AuthCode)-6:])
 	}
 
 	// check authcode expiry
 	now := time.Now().UTC()
 	if user.AuthcodeCreatedAt.Add(5 * time.Minute).Before(now) {
-		return nil, fmt.Errorf("%s (xxxxxx-%s): %v", ErrAuthcodeExpired, cmd.AuthCode[len(cmd.AuthCode)-6:], err)
+		return nil, fmt.Errorf("%s (xxxxxx-%s)", ErrAuthcodeExpired, cmd.AuthCode[len(cmd.AuthCode)-6:])
 	}
 
 	// check if user is disabled
@@ -679,4 +683,23 @@ func (s *service) decrypt(encrypted, errMsg string, clear *[]byte, ch chan error
 	}
 
 	*clear = decrypted
+}
+
+// MarkAuthCodeClaimed implements the OauthFlowService interface to update the
+// state of the authcode data row to be claimed so that it cannot be used
+// more than once
+func (s *service) MarkAuthCodeClaimed(authcode string) error {
+
+	// get index
+	index, err := s.indexer.ObtainBlindIndex(authcode)
+	if err != nil {
+		return fmt.Errorf("%s for auth code xxxxxx-%s: %v", ErrGenAuthCodeIndex, authcode[len(authcode)-6:], err)
+	}
+
+	// update db record
+	if err := s.db.UpdateAuthCodeClaimed(index, true); err != nil {
+		return fmt.Errorf("Failed to update claimed field of authcode data for auth code xxxxxx-%s: %v", authcode[len(authcode)-6:], err)
+	}
+
+	return nil
 }

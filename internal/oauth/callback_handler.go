@@ -261,8 +261,21 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	go func(r types.UserRefresh) {
 		if err := h.auth.PersistRefresh(r); err != nil {
 			log.Error(fmt.Sprintf("failed to persist refresh token for user name %s", userData.Username), "err", err.Error())
+			return
 		}
+
+		log.Info(fmt.Sprintf("successfully persisted refresh token for user %s", userData.Username))
 	}(persist)
+
+	go func(ac string) {
+		// mark auth code as claimed so it cannot be used again
+		if err := h.oauth.MarkAuthCodeClaimed(ac); err != nil {
+			log.Error(fmt.Sprintf("failed to mark auth code as claimed for user name %s", userData.Username), "err", err.Error())
+			return
+		}
+
+		log.Info(fmt.Sprintf("successfully marked auth code as claimed for user %s", userData.Username))
+	}(userData.Authcode)
 
 	// return access, refresh, and id tokens to gateway
 	authz := provider.UserAuthorization{

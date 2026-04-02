@@ -264,7 +264,6 @@ func (h *userHandler) updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	log = log.With("requesting_service", authedSvc.Claims.Subject)
 
-	// check if iamVerifier is nil, if not nil, validate user iam token
 	accessToken := r.Header.Get("Authorization")
 	authorized, err := h.iamVerifier.BuildAuthorized(updateUserAllowed, accessToken)
 	if err != nil {

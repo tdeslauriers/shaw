@@ -147,6 +147,11 @@ func BuildAudiences(scopes string) (audiences []string) {
 	// iterate over each scope and split by : to get the service name
 	for _, scope := range scps {
 		chunk := strings.Split(scope, ":") // splits scope by : -> w:service:*
+
+		// check for well formed scope
+		if len(chunk) < 2 {
+			continue
+		}
 		services = append(services, chunk[1])
 	}
 

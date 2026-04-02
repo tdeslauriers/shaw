@@ -116,10 +116,10 @@ func (h *handler) HandleRegistration(w http.ResponseWriter, r *http.Request) {
 			e.SendJsonErr(w)
 			return
 		} else {
-			log.Error("failed to register user", "err", err.Error())
+			log.Error(fmt.Sprintf("failed to register user %s", cmd.Username), "err", err.Error())
 			e := connect.ErrorHttp{
 				StatusCode: http.StatusInternalServerError,
-				Message:    fmt.Sprintf("failed to register user %s: %s", cmd.Username, err.Error()),
+				Message:    err.Error(),
 			}
 			e.SendJsonErr(w)
 			return

@@ -109,7 +109,7 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// validate user credentials, redirect url, client id, and response type concurrently
 	var wg sync.WaitGroup
-	errChan := make(chan error, 2)
+	errChan := make(chan error, 4)
 
 	// validate user credentials
 	wg.Add(1)
@@ -189,10 +189,10 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// generate and persist auth code
 	authCode, err := h.oauth.GenerateAuthCode(
-		cmd.Username, 
-		cmd.Nonce, 
-		cmd.ClientId, 
-		cmd.Redirect, 
+		cmd.Username,
+		cmd.Nonce,
+		cmd.ClientId,
+		cmd.Redirect,
 		scopes,
 	)
 	if err != nil {

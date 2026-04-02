@@ -111,6 +111,7 @@ func (h *groupsHandler) HandleUserGroups(w http.ResponseWriter, r *http.Request)
 			Message:    "no scopes provided",
 		}
 		e.SendJsonErr(w)
+		return
 	}
 
 	// light validation of scopes

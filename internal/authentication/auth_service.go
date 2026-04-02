@@ -78,7 +78,7 @@ type authService struct {
 // ValidateCredentials validates the user credentials for user authentication service
 func (s *authService) ValidateCredentials(username, password string) error {
 
-	if len(username) < 5 || len(password) > 255 {
+	if len(username) < 5 || len(username) > 255 {
 		s.logger.Error(fmt.Sprintf("username %s is either either too short or too long", username),
 			"err", fmt.Sprintf("expected between 5 adn 255; username length: %d", len(username)))
 		return errors.New(ErrInvalidUsernamePassword)
@@ -189,7 +189,7 @@ func (s *authService) MintToken(claims jwt.Claims) (*jwt.Token, error) {
 
 	// jwt header
 	header := jwt.Header{
-		Alg: "HS256",
+		Alg: jwt.ES512,
 		Typ: jwt.TokenType,
 	}
 

@@ -111,8 +111,22 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 	u, err := h.service.GetUser(ctx, cmd.UserSlug)
 	if err != nil {
 		log.Error("failed to get user for scope update", "err", err.Error())
-
-		return
+		switch {
+		case strings.Contains(err.Error(), "not found"):
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusNotFound,
+				Message:    "user not found",
+			}
+			e.SendJsonErr(w)
+			return
+		default:
+			e := connect.ErrorHttp{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "failed to get user for scope update",
+			}
+			e.SendJsonErr(w)
+			return
+		}
 	}
 
 	// update user scopes
