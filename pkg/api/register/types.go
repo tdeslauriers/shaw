@@ -25,10 +25,6 @@ type UserRegisterCmd struct {
 	// as such, it is not included in field level validation.
 	ClientId string `json:"client_id,omitempty"`
 
-	// Session is not consumed by all endpoints in all use cases,
-	// as such, it is not included in field level validation.
-	Session string `json:"session,omitempty"`
-
 	// Csrf is not consumed by all endpoints in all use cases,
 	// as such, it is not included in field level validation.
 	Csrf string `json:"csrf,omitempty"`
