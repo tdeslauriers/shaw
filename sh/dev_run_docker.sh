@@ -1,8 +1,15 @@
 #!/bin/bash
 
-docker build -t shaw .
+set -euo pipefail
 
-docker run -d --rm -p $(op read "op://world_site/shaw_service_container_dev/port"):$(op read "op://world_site/shaw_service_container_dev/port") \
+IMAGE_NAME="shaw:latest"
+CONTAINER_NAME="shaw-dev"
+
+docker build --pull --no-cache -t "${IMAGE_NAME}" .
+
+docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+
+docker run -d --rm --name "${CONTAINER_NAME}" -p $(op read "op://world_site/shaw_service_container_dev/port"):$(op read "op://world_site/shaw_service_container_dev/port") \
     -e SHAW_SERVICE_CLIENT_ID=$(op read "op://world_site/shaw_service_container_dev/client_id") \
     -e SHAW_SERVICE_PORT=":$(op read "op://world_site/shaw_service_container_dev/port")" \
     -e SHAW_CA_CERT="$(op document get "service_ca_dev_cert" --vault world_site | base64 -w 0)" \
@@ -25,4 +32,4 @@ docker run -d --rm -p $(op read "op://world_site/shaw_service_container_dev/port
     -e SHAW_S2S_JWT_VERIFYING_KEY="$(op read "op://world_site/ran_jwt_key_pair_dev/verifying_key")" \
     -e SHAW_USER_JWT_SIGNING_KEY="$(op read "op://world_site/shaw_jwt_key_pair_dev/signing_key")" \
     -e SHAW_USER_JWT_VERIFYING_KEY="$(op read "op://world_site/shaw_jwt_key_pair_dev/verifying_key")" \
-    shaw:latest
+    "${IMAGE_NAME}"

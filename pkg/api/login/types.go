@@ -17,8 +17,7 @@ type UserLoginCmd struct {
 	ClientId     string `json:"client_id,omitempty"`
 	Redirect     string `json:"redirect,omitempty"`
 
-	Session string `json:"session,omitempty"`
-	Csrf    string `json:"csrf,omitempty"`
+	Csrf string `json:"csrf,omitempty"`
 }
 
 // ValidateCmd performs very limited checks login cmd fields.
