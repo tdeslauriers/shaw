@@ -126,7 +126,7 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if valid, err := h.oauth.IsValidRedirect(cmd.ClientId, cmd.Redirect); !valid {
+		if valid, err := h.oauth.ValidateRedirect(cmd.ClientId, cmd.Redirect); !valid {
 			log.Error(err.Error())
 			errChan <- err
 			return
@@ -137,7 +137,7 @@ func (h *handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if valid, err := h.oauth.IsValidClient(cmd.ClientId, cmd.Username); !valid {
+		if valid, err := h.oauth.ValidateClient(cmd.ClientId, cmd.Username); !valid {
 			log.Error(err.Error())
 			errChan <- err
 			return

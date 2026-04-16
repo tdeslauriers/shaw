@@ -32,10 +32,10 @@ func NewService(db *sql.DB, i data.Indexer, c data.Cryptor) Service {
 // Service is the interface for the oauth service functionality like validating clients and redirect urls, generating auth codes, and retrieving user data associated with an auth code.
 type Service interface {
 	// IsVaildRedirect validates the client and redirect url exist, are linked, and are enabled/not expired/not locked
-	IsValidRedirect(clientid, url string) (bool, error)
+	ValidateRedirect(clientid, url string) (bool, error)
 
-	// IsValidClient validates the client and user are linked, enabled, not expired, not locked
-	IsValidClient(clientid, username string) (bool, error)
+	// ValidateClient validates the client and user are linked, enabled, not expired, not locked
+	ValidateClient(clientid, username string) (bool, error)
 
 	// GenerateAuthCode generates an auth code for and persists it to the db along with the user's scopes, nonce, the client, and the redirect url,
 	// associating it with the user so that it can be used to mint an access token and Id token on callback from the client
@@ -67,8 +67,8 @@ type service struct {
 	logger *slog.Logger
 }
 
-// IsValidRedirect implements the OauthFlowService interface
-func (s *service) IsValidRedirect(clientId, redirect string) (bool, error) {
+// ValidateRedirect implements the OauthFlowService interface
+func (s *service) ValidateRedirect(clientId, redirect string) (bool, error) {
 
 	// remove any query params from redirect url
 	parsed, err := url.Parse(redirect)
@@ -112,8 +112,8 @@ func (s *service) IsValidRedirect(clientId, redirect string) (bool, error) {
 	return true, nil
 }
 
-// IsValidClient implements the OauthFlowService interface
-func (s *service) IsValidClient(clientId, username string) (bool, error) {
+// ValidateClient implements the OauthFlowService interface
+func (s *service) ValidateClient(clientId, username string) (bool, error) {
 
 	// re-generate user index
 	index, err := s.indexer.ObtainBlindIndex(username)

@@ -74,7 +74,7 @@ func (s *resetService) ResetPassword(ctx context.Context, username string, cmd p
 	}
 
 	// validate new password is well formed and complies with complexity requirements
-	if err := validate.IsValidPassword(cmd.NewPassword); err != nil {
+	if err := validate.ValidatePassword(cmd.NewPassword); err != nil {
 		return fmt.Errorf("invalid new password: fails complexity requirements: %v", err)
 	}
 

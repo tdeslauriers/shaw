@@ -301,7 +301,7 @@ func (s *userService) UpdateScopes(ctx context.Context, user *api.User, cmd []st
 
 	// validate the cmd scopes
 	for _, slug := range cmd {
-		if !validate.IsValidUuid(slug) {
+		if err := validate.ValidateUuid(slug); err != nil {
 			return fmt.Errorf("%s: %s", ErrInvalidScopeSlug, slug)
 		}
 	}

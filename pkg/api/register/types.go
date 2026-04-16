@@ -35,19 +35,19 @@ type UserRegisterCmd struct {
 // because they are not required fields in all use cases.
 func (cmd *UserRegisterCmd) ValidateCmd() error {
 
-	if err := validate.IsValidEmail(cmd.Username); err != nil {
+	if err := validate.ValidateEmail(cmd.Username); err != nil {
 		return fmt.Errorf("invalid username: %v", err)
 	}
 
-	if err := validate.IsValidName(cmd.Firstname); err != nil {
+	if err := validate.ValidateName(cmd.Firstname); err != nil {
 		return fmt.Errorf("invalid firstname: %v", err)
 	}
 
-	if err := validate.IsValidName(cmd.Lastname); err != nil {
+	if err := validate.ValidateName(cmd.Lastname); err != nil {
 		return fmt.Errorf("invalid lastname: %v", err)
 	}
 
-	if err := validate.IsValidBirthday(cmd.Birthdate); err != nil {
+	if err := validate.ValidateBirthday(cmd.Birthdate); err != nil {
 		return fmt.Errorf("invalid birthdate: %v", err)
 	}
 
@@ -55,7 +55,7 @@ func (cmd *UserRegisterCmd) ValidateCmd() error {
 		return errors.New("password does not match confirm password")
 	}
 
-	if err := validate.IsValidPassword(cmd.Password); err != nil {
+	if err := validate.ValidatePassword(cmd.Password); err != nil {
 		return fmt.Errorf("invalid password: %v", err)
 	}
 

@@ -28,8 +28,10 @@ func (u *Profile) ValidateCmd() error {
 	// validate Id:  Only checks if it is a uuid, not if it is the correct uuid
 	// Note: for operations this model is used in, id is often dropped or not the lookup key,
 	// check for nil or empty string if needed
-	if u.Id != "" && !validate.IsValidUuid(u.Id) {
-		return fmt.Errorf("invalid or not well formatted user id")
+	if u.Id != "" {
+		if err := validate.ValidateUuid(u.Id); err != nil {
+			return fmt.Errorf("invalid or not well formatted user id")
+		}
 	}
 
 	// Username is immutable at this time.
@@ -43,17 +45,17 @@ func (u *Profile) ValidateCmd() error {
 	}
 
 	// validate Firstname
-	if err := validate.IsValidName(u.Firstname); err != nil {
+	if err := validate.ValidateName(u.Firstname); err != nil {
 		return fmt.Errorf("invalid firstname: %v", err)
 	}
 
 	// validate Lastname
-	if err := validate.IsValidName(u.Lastname); err != nil {
+	if err := validate.ValidateName(u.Lastname); err != nil {
 		return fmt.Errorf("invalid lastname: %v", err)
 	}
 
 	// validate Birthdate
-	if err := validate.IsValidBirthday(u.BirthDate); err != nil {
+	if err := validate.ValidateBirthday(u.BirthDate); err != nil {
 		return fmt.Errorf("invalid birthdate: %v", err)
 	}
 
@@ -61,8 +63,10 @@ func (u *Profile) ValidateCmd() error {
 	// Note: only checks if it is a uuid, not if it is the correct uuid
 	// Slug may or may not be present depending on the operation,
 	// if it is supposed to be present, and is not, that will need to be checked elsewhere
-	if u.Slug != "" && !validate.IsValidUuid(u.Slug) {
-		return fmt.Errorf("invalid or not well formatted slug")
+	if u.Slug != "" {
+		if err := validate.ValidateUuid(u.Slug); err != nil {
+			return fmt.Errorf("invalid or not well formatted slug")
+		}
 	}
 
 	// CreatedAt is a timestamp, no validation needed, will be dropped on all updates
@@ -97,8 +101,10 @@ func (u *User) ValidateCmd() error {
 	// validate Id:  Only checks if it is a uuid, not if it is the correct uuid
 	// Note: for operations this model is used in, id is often dropped or not the lookup key,
 	// check for nil or empty string if needed
-	if u.Id != "" && !validate.IsValidUuid(u.Id) {
-		return fmt.Errorf("invalid or not well formatted user id")
+	if u.Id != "" {
+		if err := validate.ValidateUuid(u.Id); err != nil {
+			return fmt.Errorf("invalid or not well formatted user id")
+		}
 	}
 
 	// Username is immutable at this time.
@@ -112,17 +118,17 @@ func (u *User) ValidateCmd() error {
 	}
 
 	// validate Firstname
-	if err := validate.IsValidName(u.Firstname); err != nil {
+	if err := validate.ValidateName(u.Firstname); err != nil {
 		return fmt.Errorf("invalid firstname: %v", err)
 	}
 
 	// validate Lastname
-	if err := validate.IsValidName(u.Lastname); err != nil {
+	if err := validate.ValidateName(u.Lastname); err != nil {
 		return fmt.Errorf("invalid lastname: %v", err)
 	}
 
 	// validate Birthdate
-	if err := validate.IsValidBirthday(u.BirthDate); err != nil {
+	if err := validate.ValidateBirthday(u.BirthDate); err != nil {
 		return fmt.Errorf("invalid birthdate: %v", err)
 	}
 
@@ -130,8 +136,10 @@ func (u *User) ValidateCmd() error {
 	// Note: only checks if it is a uuid, not if it is the correct uuid
 	// Slug may or may not be present depending on the operation,
 	// if it is supposed to be present, and is not, that will need to be checked elsewhere
-	if u.Slug != "" && !validate.IsValidUuid(u.Slug) {
-		return fmt.Errorf("invalid or not well formatted slug")
+	if u.Slug != "" {
+		if err := validate.ValidateUuid(u.Slug); err != nil {
+			return fmt.Errorf("invalid or not well formatted slug")
+		}
 	}
 
 	// CreatedAt is a timestamp, no validation needed, will be dropped on all updates
@@ -159,13 +167,13 @@ func (cmd *UserScopesCmd) ValidateCmd() error {
 		return fmt.Errorf("user slug is required")
 	}
 
-	if !validate.IsValidUuid(cmd.UserSlug) {
+	if err := validate.ValidateUuid(cmd.UserSlug); err != nil {
 		return fmt.Errorf("invalid user slug")
 	}
 
 	if len(cmd.ScopeSlugs) > 0 {
 		for _, slug := range cmd.ScopeSlugs {
-			if !validate.IsValidUuid(slug) {
+			if err := validate.ValidateUuid(slug); err != nil {
 				return fmt.Errorf("invalid scope slug submitted: all slugs must be valid uuids")
 			}
 		}
