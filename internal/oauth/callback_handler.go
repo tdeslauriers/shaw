@@ -184,7 +184,7 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		Jti:       jti.String(),
 		Issuer:    util.ServiceName,
 		Subject:   userData.Username,
-		Audience:  types.BuildAudiences(userData.Scopes),
+		Audience:  jwt.BuildAudiences(userData.Scopes),
 		IssuedAt:  now.Unix(),
 		NotBefore: now.Unix(),
 		Expires:   now.Add(authentication.AccessTokenDuration * time.Minute).Unix(),
@@ -280,12 +280,12 @@ func (h *handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// return access, refresh, and id tokens to gateway
 	authz := provider.UserAuthorization{
 		Jti:                accessToken.Claims.Jti,
-		AccessToken:        accessToken.Token,
+		AccessToken:        accessToken.Raw,
 		TokenType:          "Bearer",
 		AccessTokenExpires: data.CustomTime{Time: time.Unix(accessToken.Claims.Expires, 0).UTC()},
 		Refresh:            refresh.String(),
 		RefreshExpires:     data.CustomTime{Time: time.Unix(accessToken.Claims.IssuedAt, 0).UTC().Add(authentication.RefreshDuration * time.Hour)},
-		IdToken:            idToken.Token,
+		IdToken:            idToken.Raw,
 		IdTokenExpires:     data.CustomTime{Time: time.Unix(idToken.Claims.Expires, 0).UTC()},
 	}
 

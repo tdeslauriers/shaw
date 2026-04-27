@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/tdeslauriers/carapace/pkg/config"
 	util "github.com/tdeslauriers/shaw/internal/definition"
@@ -59,10 +62,13 @@ func main() {
 
 	defer identity.CloseDb()
 
-	if err := identity.Run(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := identity.Run(ctx); err != nil {
 		logger.Error(fmt.Sprintf("failed to run %s identity service", config.ServiceName), "err", err.Error())
 		os.Exit(1)
 	}
 
-	select {}
+	<-ctx.Done()
 }

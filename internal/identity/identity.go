@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"context"
 	"crypto/tls"
 	"database/sql"
 	"encoding/base64"
@@ -28,7 +29,7 @@ import (
 )
 
 type Identity interface {
-	Run() error
+	Run(ctx context.Context) error
 	CloseDb() error
 }
 
@@ -175,7 +176,7 @@ func (i *identity) CloseDb() error {
 	return nil
 }
 
-func (i *identity) Run() error {
+func (i *identity) Run(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", diagnostics.HealthCheckHandler)
@@ -218,9 +219,9 @@ func (i *identity) Run() error {
 		}
 	}()
 
-	i.cleanup.ExpiredRefresh(12)
-	i.cleanup.ExpiredAuthcode()
-	i.cleanup.ExpiredS2s()
+	i.cleanup.ExpiredRefresh(ctx, 12)
+	i.cleanup.ExpiredAuthcode(ctx)
+	i.cleanup.ExpiredS2s(ctx)
 
 	return nil
 }

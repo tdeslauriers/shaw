@@ -197,7 +197,7 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		Jti:       jti.String(),
 		Issuer:    util.ServiceName,
 		Subject:   u.Username,
-		Audience:  types.BuildAudiences(refresh.Scopes),
+		Audience:  jwt.BuildAudiences(refresh.Scopes),
 		IssuedAt:  now.Unix(),
 		NotBefore: now.Unix(),
 		Expires:   now.Add(authentication.AccessTokenDuration * time.Minute).Unix(),
@@ -260,7 +260,7 @@ func (h *handler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	// respond with success + new tokens
 	authz := provider.UserAuthorization{
 		Jti:                jti.String(),
-		AccessToken:        accessToken.Token,
+		AccessToken:        accessToken.Raw,
 		TokenType:          "Bearer",
 		AccessTokenExpires: data.CustomTime{Time: time.Unix(accessClaims.Expires, 0).UTC()},
 		Refresh:            refreshToken.String(),

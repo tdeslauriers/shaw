@@ -19,7 +19,7 @@ export SHAW_DB_CLIENT_CERT=$(op document get "shaw_db_client_dev_cert" --vault w
 export SHAW_DB_CLIENT_KEY=$(op document get "shaw_db_client_dev_key" --vault world_site | base64 -w 0)
 
 # S2S Auth creds
-export SHAW_S2S_AUTH_URL=$(op read "op://world_site/ran_service_app_local/url"):$(op read "op://world_site/ran_service_app_local/port")
+export SHAW_S2S_AUTH_URL=$(op read "op://world_site/ran_service_container_dev/url"):$(op read "op://world_site/ran_service_container_dev/port")
 export SHAW_S2S_AUTH_CLIENT_ID=$(op read "op://world_site/shaw_s2s_login_dev/username")
 export SHAW_S2S_AUTH_CLIENT_SECRET=$(op read "op://world_site/shaw_s2s_login_dev/password")
 
