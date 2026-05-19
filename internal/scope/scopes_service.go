@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
+	"github.com/tdeslauriers/carapace/pkg/connect/telemetry"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	ran "github.com/tdeslauriers/ran/pkg/api/scopes"
@@ -62,11 +63,11 @@ func (s *scopesService) GetAll(ctx context.Context) ([]ran.Scope, error) {
 	log := s.logger
 
 	// get telemetry from context if exists
-	telemetry, ok := connect.GetTelemetryFromContext(ctx)
+	telemetry, ok := ctx.Value(telemetry.TelemetryKey).(*telemetry.Telemetry)
 	if ok && telemetry != nil {
 		log = log.With(telemetry.TelemetryFields()...)
 	} else {
-		log.Warn("failed to extract telemetry from context of s2s getAllScopes call")
+		log.Warn("failed to extract telemetry from context")
 	}
 
 	// get s2s service endpoint token to retreive scopes
@@ -174,7 +175,7 @@ func (s *scopesService) lookupUserScopes(
 	log := s.logger
 
 	// get telemetry from context if exists
-	telemetry, ok := connect.GetTelemetryFromContext(ctx)
+	telemetry, ok := ctx.Value(telemetry.TelemetryKey).(*telemetry.Telemetry)
 	if ok && telemetry != nil {
 		log = log.With(telemetry.TelemetryFields()...)
 	} else {

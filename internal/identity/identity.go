@@ -212,22 +212,21 @@ func (i *identity) Run(ctx context.Context) error {
 	mux.HandleFunc("/users/{slug...}", userHandler.HandleUsers)
 	mux.HandleFunc("/users/scopes", userHandler.HandleScopes)
 
-	identityServer := &connect.TlsServer{
-		Addr:      i.config.ServicePort,
-		Mux:       mux,
-		TlsConfig: i.serverTls,
-	}
-
-	go func() {
-		i.logger.Info(fmt.Sprintf("starting %s service on port %s...", i.config.ServiceName, identityServer.Addr[1:]))
-		if err := identityServer.Initialize(); err != http.ErrServerClosed {
-			i.logger.Error(fmt.Sprintf("failed to start %s user authentication service", i.config.ServiceName), "err", err.Error())
-		}
-	}()
+	identityServer := connect.NewTlsServer(
+		i.config.ServicePort,
+		mux,
+		i.serverTls,
+	)
 
 	i.cleanup.ExpiredRefresh(ctx, 12)
 	i.cleanup.ExpiredAuthcode(ctx)
 	i.cleanup.ExpiredS2s(ctx)
+
+	i.logger.Info(fmt.Sprintf("starting %s service on port %s...", i.config.ServiceName, i.config.ServicePort[1:]))
+	if err := identityServer.Initialize(ctx); err != nil && err != http.ErrServerClosed {
+		i.logger.Error(fmt.Sprintf("failed to start %s user authentication service", i.config.ServiceName), "err", err.Error())
+		return err
+	}
 
 	return nil
 }

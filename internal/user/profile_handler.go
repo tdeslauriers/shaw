@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
+	"github.com/tdeslauriers/carapace/pkg/connect/telemetry"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	util "github.com/tdeslauriers/shaw/internal/definition"
 	api "github.com/tdeslauriers/shaw/pkg/api/user"
@@ -54,7 +55,7 @@ func (h *profileHandler) HandleProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	default:
 		// get telemetry from request
-		tel := connect.ObtainTelemetry(r, h.logger)
+		tel := telemetry.ObtainHttpTelemetry(r, h.logger)
 		log := h.logger.With(tel.TelemetryFields()...)
 
 		log.Error(fmt.Sprintf("unsupported method %s for endpoint %s", r.Method, r.URL.Path))
@@ -71,7 +72,7 @@ func (h *profileHandler) HandleProfile(w http.ResponseWriter, r *http.Request) {
 func (h *profileHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 
 	// get telemetry from request
-	tel := connect.ObtainTelemetry(r, h.logger)
+	tel := telemetry.ObtainHttpTelemetry(r, h.logger)
 	log := h.logger.With(tel.TelemetryFields()...)
 
 	// validate s2stoken
@@ -145,7 +146,7 @@ func (h *profileHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// get telemetry from request
-	tel := connect.ObtainTelemetry(r, h.logger)
+	tel := telemetry.ObtainHttpTelemetry(r, h.logger)
 	log := h.logger.With(tel.TelemetryFields()...)
 
 	// validate s2stoken

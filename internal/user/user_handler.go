@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
+	"github.com/tdeslauriers/carapace/pkg/connect/telemetry"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	util "github.com/tdeslauriers/shaw/internal/definition"
 	api "github.com/tdeslauriers/shaw/pkg/api/user"
@@ -64,7 +65,7 @@ func (h *userHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	default:
 		// get telemetry from request
-		tel := connect.ObtainTelemetry(r, h.logger)
+		tel := telemetry.ObtainHttpTelemetry(r, h.logger)
 		log := h.logger.With(tel.TelemetryFields()...)
 
 		log.Error(fmt.Sprintf("unsupported method %s for endpoint %s", r.Method, r.URL.Path))
@@ -82,7 +83,7 @@ func (h *userHandler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 func (h *userHandler) getUsers(w http.ResponseWriter, r *http.Request) {
 
 	// get telemetry from request
-	tel := connect.ObtainTelemetry(r, h.logger)
+	tel := telemetry.ObtainHttpTelemetry(r, h.logger)
 	log := h.logger.With(tel.TelemetryFields()...)
 
 	// get correct scopes
@@ -149,11 +150,11 @@ func (h *userHandler) getUsers(w http.ResponseWriter, r *http.Request) {
 func (h *userHandler) getUser(w http.ResponseWriter, r *http.Request) {
 
 	// get telemetry from request
-	tel := connect.ObtainTelemetry(r, h.logger)
+	tel := telemetry.ObtainHttpTelemetry(r, h.logger)
 	log := h.logger.With(tel.TelemetryFields()...)
 
 	// add telemetry to context for downstream calls + service functions
-	ctx := context.WithValue(r.Context(), connect.TelemetryKey, tel)
+	ctx := context.WithValue(r.Context(), telemetry.TelemetryKey, tel)
 
 	// get correct scopes
 	var requiredScopes []string
@@ -248,11 +249,11 @@ func (h *userHandler) getUser(w http.ResponseWriter, r *http.Request) {
 func (h *userHandler) updateUser(w http.ResponseWriter, r *http.Request) {
 
 	// get telemetry from request
-	tel := connect.ObtainTelemetry(r, h.logger)
+	tel := telemetry.ObtainHttpTelemetry(r, h.logger)
 	log := h.logger.With(tel.TelemetryFields()...)
 
 	// add telemetry to context for downstream calls + service functions
-	ctx := context.WithValue(r.Context(), connect.TelemetryKey, tel)
+	ctx := context.WithValue(r.Context(), telemetry.TelemetryKey, tel)
 
 	// validate s2stoken
 	svcToken := r.Header.Get("Service-Authorization")
@@ -264,6 +265,7 @@ func (h *userHandler) updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	log = log.With("requesting_service", authedSvc.Claims.Subject)
 
+	// validate iam token
 	accessToken := r.Header.Get("Authorization")
 	authorized, err := h.iamVerifier.BuildAuthorized(updateUserAllowed, accessToken)
 	if err != nil {

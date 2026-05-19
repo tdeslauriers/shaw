@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/tdeslauriers/carapace/pkg/connect"
+	"github.com/tdeslauriers/carapace/pkg/connect/telemetry"
 	"github.com/tdeslauriers/carapace/pkg/jwt"
 	util "github.com/tdeslauriers/shaw/internal/definition"
 	"github.com/tdeslauriers/shaw/pkg/api/user"
@@ -48,11 +49,11 @@ type scopesHandler struct {
 func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 
 	// get telemetry from request
-	tel := connect.ObtainTelemetry(r, h.logger)
+	tel := telemetry.ObtainHttpTelemetry(r, h.logger)
 	log := h.logger.With(tel.TelemetryFields()...)
 
 	// add telemetry to context for downstream calls + service functions
-	ctx := context.WithValue(r.Context(), connect.TelemetryKey, tel)
+	ctx := context.WithValue(r.Context(), telemetry.TelemetryKey, tel)
 
 	if r.Method != http.MethodPut {
 		log.Error("http method not allowed", "err", "only POST http method allowed")

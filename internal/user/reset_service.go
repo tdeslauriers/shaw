@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/tdeslauriers/carapace/pkg/connect"
+	"github.com/tdeslauriers/carapace/pkg/connect/telemetry"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/profile"
 	"github.com/tdeslauriers/carapace/pkg/validate"
@@ -57,7 +57,7 @@ func (s *resetService) ResetPassword(ctx context.Context, username string, cmd p
 	log := s.logger
 
 	// get tlemetry from context
-	if tel, ok := ctx.Value(connect.TelemetryKey).(*connect.Telemetry); ok && tel != nil {
+	if tel, ok := ctx.Value(telemetry.TelemetryKey).(*telemetry.Telemetry); ok && tel != nil {
 		log = log.With(tel.TelemetryFields()...)
 	} else {
 		log.Warn("no telemetry found in context for reset password request")

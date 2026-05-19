@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/tdeslauriers/carapace/pkg/connect"
+	"github.com/tdeslauriers/carapace/pkg/connect/telemetry"
 	"github.com/tdeslauriers/carapace/pkg/data"
 	"github.com/tdeslauriers/carapace/pkg/session/provider"
 	ran "github.com/tdeslauriers/ran/pkg/api/scopes"
@@ -85,7 +86,7 @@ func (s *service) Register(ctx context.Context, cmd apiReg.UserRegisterCmd) erro
 	log := s.logger
 
 	// get telemetry from context if exists
-	if tel, ok := ctx.Value(connect.TelemetryKey).(*connect.Telemetry); ok && tel != nil {
+	if tel, ok := ctx.Value(telemetry.TelemetryKey).(*telemetry.Telemetry); ok && tel != nil {
 		log = log.With(tel.TelemetryFields()...)
 	} else {
 		log.Warn("no telemetry found in context for registration service")
