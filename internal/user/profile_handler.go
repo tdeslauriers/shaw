@@ -83,7 +83,7 @@ func (h *profileHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
-	log = log.With("requesting_service", authedSvc.Claims.Subject)
+	log = log.With("principal_service", authedSvc.Claims.Subject)
 
 	// validate iam access token
 	accessToken := r.Header.Get("Authorization")
@@ -157,7 +157,7 @@ func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
-	log = log.With("requesting_service", authedSvc.Claims.Subject)
+	log = log.With("principal_service", authedSvc.Claims.Subject)
 
 	// validate iam access token
 	accessToken := r.Header.Get("Authorization")
@@ -167,7 +167,7 @@ func (h *profileHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		connect.RespondAuthFailure(connect.User, err, w)
 		return
 	}
-	log = log.With("actor", authorized.Claims.Subject)
+	log = log.With("principal_user", authorized.Claims.Subject)
 
 	var cmd api.Profile
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {

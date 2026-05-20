@@ -75,7 +75,7 @@ func (h *resetHandler) HandleReset(w http.ResponseWriter, r *http.Request) {
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
-	log = log.With("requesting_service", authedSvc.Claims.Subject)
+	log = log.With("principal_service", authedSvc.Claims.Subject)
 
 	// validate iam access token
 	accessToken := r.Header.Get("Authorization")
@@ -85,7 +85,7 @@ func (h *resetHandler) HandleReset(w http.ResponseWriter, r *http.Request) {
 		connect.RespondAuthFailure(connect.User, err, w)
 		return
 	}
-	log = log.With("actor", authorized.Claims.Subject)
+	log = log.With("principal_user", authorized.Claims.Subject)
 
 	// parse request body
 	var cmd profile.ResetCmd

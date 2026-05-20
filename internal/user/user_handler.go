@@ -102,7 +102,7 @@ func (h *userHandler) getUsers(w http.ResponseWriter, r *http.Request) {
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
-	log = log.With("requesting_service", authedSvc.Claims.Subject)
+	log = log.With("principal_service", authedSvc.Claims.Subject)
 
 	// check if iamVerifier is nil, if not nil, validate user iam token
 	var authedUser *jwt.Token
@@ -115,7 +115,7 @@ func (h *userHandler) getUsers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		authedUser = authorized
-		log = log.With("actor", authedUser.Claims.Subject)
+		log = log.With("principal_user", authedUser.Claims.Subject)
 	}
 
 	// get users from user service
@@ -172,7 +172,7 @@ func (h *userHandler) getUser(w http.ResponseWriter, r *http.Request) {
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
-	log = log.With("requesting_service", authedSvc.Claims.Subject)
+	log = log.With("principal_service", authedSvc.Claims.Subject)
 
 	// check if iamVerifier is nil, if not nil, validate user iam token
 	var authedUser *jwt.Token
@@ -185,7 +185,7 @@ func (h *userHandler) getUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		authedUser = authorized
-		log = log.With("actor", authedUser.Claims.Subject)
+		log = log.With("principal_user", authedUser.Claims.Subject)
 	}
 
 	// get the url slug from the request
@@ -263,7 +263,7 @@ func (h *userHandler) updateUser(w http.ResponseWriter, r *http.Request) {
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
-	log = log.With("requesting_service", authedSvc.Claims.Subject)
+	log = log.With("principal_service", authedSvc.Claims.Subject)
 
 	// validate iam token
 	accessToken := r.Header.Get("Authorization")
@@ -273,7 +273,7 @@ func (h *userHandler) updateUser(w http.ResponseWriter, r *http.Request) {
 		connect.RespondAuthFailure(connect.User, err, w)
 		return
 	}
-	log = log.With("actor", authorized.Claims.Subject)
+	log = log.With("principal_user", authorized.Claims.Subject)
 
 	// get the url slug from the request
 	slug, err := connect.GetValidSlug(r)

@@ -84,7 +84,7 @@ func (h *groupsHandler) HandleUserGroups(w http.ResponseWriter, r *http.Request)
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
-	log = log.With("requesting_service", authedSvc.Claims.Subject)
+	log = log.With("principal_service", authedSvc.Claims.Subject)
 
 	// validate iam token if necessary
 	var authedUser *jwt.Token
@@ -97,7 +97,7 @@ func (h *groupsHandler) HandleUserGroups(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		authedUser = authorized
-		log = log.With("actor", authedUser.Claims.Subject)
+		log = log.With("principal_user", authedUser.Claims.Subject)
 	}
 
 	// get query params

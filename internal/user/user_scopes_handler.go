@@ -73,7 +73,7 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 		connect.RespondAuthFailure(connect.S2s, err, w)
 		return
 	}
-	log = log.With("requesting_service", authedSvc.Claims.Subject)
+	log = log.With("principal_service", authedSvc.Claims.Subject)
 
 	// validate iam token
 	iamToken := r.Header.Get("Authorization")
@@ -83,7 +83,7 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 		connect.RespondAuthFailure(connect.User, err, w)
 		return
 	}
-	log = log.With("actor", authorized.Claims.Subject)
+	log = log.With("principal_user", authorized.Claims.Subject)
 
 	// decode request body
 	var cmd user.UserScopesCmd
@@ -134,7 +134,7 @@ func (h *scopesHandler) HandleScopes(w http.ResponseWriter, r *http.Request) {
 	// dont need to check if cmd is empty, empty slice == remove all scopes
 	if err := h.service.UpdateScopes(ctx, u, cmd.ScopeSlugs); err != nil {
 		log.Error("failed to update user scopes",
-			"actor", authorized.Claims.Subject,
+			"principal_user", authorized.Claims.Subject,
 			"err", err.Error())
 		switch {
 		case strings.Contains(err.Error(), "invalid"):
